@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'api_service.dart';
+import 'package:garage_manager/services/api_service.dart';
 
 class NewJobCardScreen extends StatefulWidget {
   const NewJobCardScreen({super.key, required this.apiService});

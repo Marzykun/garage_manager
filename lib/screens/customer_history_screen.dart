@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'api_service.dart';
+import 'package:garage_manager/services/api_service.dart';
 
 class CustomerHistoryScreen extends StatefulWidget {
   const CustomerHistoryScreen({super.key, required this.apiService});
@@ -73,7 +73,9 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
     } catch (error) {
       setState(() {
         _customers = [];
-        _errorMessage = error is ApiException ? error.toString() : 'Unable to search customers.';
+        _errorMessage = error is ApiException
+            ? error.toString()
+            : 'Unable to search customers.';
       });
     } finally {
       if (mounted) {
@@ -86,21 +88,27 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
 
   String _customerName(dynamic item) {
     if (item is Map<String, dynamic>) {
-      return item['name']?.toString() ?? item['customerName']?.toString() ?? 'Unknown customer';
+      return item['name']?.toString() ??
+          item['customerName']?.toString() ??
+          'Unknown customer';
     }
     return 'Unknown customer';
   }
 
   String _customerPhone(dynamic item) {
     if (item is Map<String, dynamic>) {
-      return item['phone']?.toString() ?? item['customerPhone']?.toString() ?? 'Unknown phone';
+      return item['phone']?.toString() ??
+          item['customerPhone']?.toString() ??
+          'Unknown phone';
     }
     return 'Unknown phone';
   }
 
   String _customerVehicle(dynamic item) {
     if (item is Map<String, dynamic>) {
-      return item['vehicleReg']?.toString() ?? item['vehicle']?.toString() ?? 'Unknown vehicle';
+      return item['vehicleReg']?.toString() ??
+          item['vehicle']?.toString() ??
+          'Unknown vehicle';
     }
     return 'Unknown vehicle';
   }
@@ -145,7 +153,10 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
               else if (_errorMessage != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: Colors.red),
+                  ),
                 )
               else if (emptyState)
                 const Expanded(
@@ -161,7 +172,8 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
                 Expanded(
                   child: ListView.separated(
                     itemCount: _customers.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final customer = _customers[index];
                       return ListTile(
@@ -211,10 +223,12 @@ class CustomerHistoryDetailScreen extends StatefulWidget {
   final String phone;
 
   @override
-  State<CustomerHistoryDetailScreen> createState() => _CustomerHistoryDetailScreenState();
+  State<CustomerHistoryDetailScreen> createState() =>
+      _CustomerHistoryDetailScreenState();
 }
 
-class _CustomerHistoryDetailScreenState extends State<CustomerHistoryDetailScreen> {
+class _CustomerHistoryDetailScreenState
+    extends State<CustomerHistoryDetailScreen> {
   late Future<List<dynamic>> _historyFuture;
 
   @override
@@ -267,7 +281,8 @@ class _CustomerHistoryDetailScreenState extends State<CustomerHistoryDetailScree
 
   String _formatAmount(dynamic record) {
     if (record is Map<String, dynamic>) {
-      final amount = record['amount'] ?? record['billedAmount'] ?? record['total'];
+      final amount =
+          record['amount'] ?? record['billedAmount'] ?? record['total'];
       if (amount != null) {
         return amount.toString();
       }
@@ -348,11 +363,16 @@ class _CustomerHistoryDetailScreenState extends State<CustomerHistoryDetailScree
                         children: [
                           Text(
                             _formatDate(record),
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           Chip(
                             label: Text(status),
-                            backgroundColor: _statusColor(status).withOpacity(0.18),
+                            backgroundColor: _statusColor(
+                              status,
+                            ).withOpacity(0.18),
                             labelStyle: TextStyle(color: _statusColor(status)),
                           ),
                         ],

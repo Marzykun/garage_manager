@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'api_service.dart';
+import 'package:garage_manager/services/api_service.dart';
 
 class BillingScreen extends StatefulWidget {
   const BillingScreen({
