@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:garage_manager/services/api_service.dart';
 
@@ -12,9 +13,10 @@ class QueueBoardScreen extends StatefulWidget {
 }
 
 class _QueueBoardScreenState extends State<QueueBoardScreen> {
-  final List<String> _filters = ['All', 'Queue', 'In Progress', 'Completed'];
+  final List<String> _filters = ['All', 'In Progress', 'Completed'];
   String _selectedFilter = 'All';
   List<dynamic> _todayJobs = [];
+  final List<dynamic> _createdJobs = [];
   bool _isLoading = false;
   String? _errorMessage;
   String? _updatingJobId;
@@ -41,6 +43,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
       } else {
         _todayJobs = [];
       }
+      _attachCreatedJobs();
     } catch (error) {
       _errorMessage = error is ApiException
           ? error.toString()
@@ -56,20 +59,15 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
   }
 
   bool _jobMatchesFilter(dynamic job, String filter) {
-    if (filter == 'All') return true;
     final status = _jobStatusValue(job).toLowerCase();
-    if (filter == 'Queue') {
-      return status.contains('queue') ||
-          status.contains('pending') ||
-          status.contains('waiting');
+    if (filter == 'All') {
+      return !status.contains('pending');
     }
     if (filter == 'In Progress') {
-      return status.contains('progress') ||
-          status.contains('ongoing') ||
-          status.contains('in_progress');
+      return status.contains('progress') || status.contains('in_progress');
     }
     if (filter == 'Completed') {
-      return status.contains('complete') || status.contains('done');
+      return status.contains('complete') || status.contains('delivered');
     }
     return false;
   }
@@ -174,6 +172,413 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
     return <String>[];
   }
 
+  void _attachCreatedJobs() {
+    if (_createdJobs.isEmpty) return;
+    final existingIds = _todayJobs.map(_jobId).whereType<String>().toSet();
+
+    final newJobs = _createdJobs.where((job) {
+      final id = _jobId(job);
+      return id == null || !existingIds.contains(id);
+    }).toList();
+
+    if (newJobs.isNotEmpty) {
+      _todayJobs = [..._todayJobs, ...newJobs];
+    }
+  }
+
+  Future<void> _createJob(
+    String vehicleReg,
+    String customerName,
+    String phone,
+    String servicesInput,
+    String notes,
+    String source,
+  ) async {
+    final services = servicesInput
+        .split(',')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+
+    final localJob = <String, dynamic>{
+      'id': 'local-${DateTime.now().millisecondsSinceEpoch}',
+      'vehicleReg': vehicleReg,
+      'customerName': customerName,
+      'customerPhone': phone,
+      'services': services,
+      'notes': notes,
+      'source': source,
+      'status': 'pending',
+    };
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await widget.apiService.createJob(
+        vehicleReg,
+        customerName,
+        phone,
+        services,
+        notes,
+        source,
+      );
+
+      if (response is Map<String, dynamic>) {
+        final createdJob = {
+          ...localJob,
+          ...response,
+          'status': response['status']?.toString().isNotEmpty == true
+              ? response['status']
+              : 'pending',
+        };
+        _createdJobs.add(createdJob);
+        _todayJobs.add(createdJob);
+      } else {
+        _createdJobs.add(localJob);
+        _todayJobs.add(localJob);
+      }
+    } catch (error) {
+      _createdJobs.add(localJob);
+      _todayJobs.add(localJob);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Unable to create job on server. Added locally to queue.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _showAddJobDialog() async {
+    final vehicleController = TextEditingController();
+    final customerController = TextEditingController();
+    final phoneController = TextEditingController();
+    final servicesController = TextEditingController();
+    final notesController = TextEditingController();
+    String source = 'Walk-in';
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Job'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: customerController,
+                decoration: const InputDecoration(
+                  labelText: 'Customer Name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Phone Number',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: vehicleController,
+                decoration: const InputDecoration(
+                  labelText: 'Vehicle Registration',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: servicesController,
+                decoration: const InputDecoration(
+                  labelText: 'Services (comma separated)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesController,
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: source,
+                decoration: const InputDecoration(
+                  labelText: 'Source',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'Walk-in', child: Text('Walk-in')),
+                  DropdownMenuItem(value: 'WhatsApp', child: Text('WhatsApp')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    source = value;
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final vehicle = vehicleController.text.trim();
+              final customer = customerController.text.trim();
+              final phone = phoneController.text.trim();
+              final services = servicesController.text.trim();
+
+              if (customer.isEmpty || phone.isEmpty || vehicle.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Customer, phone, and vehicle are required.'),
+                  ),
+                );
+                return;
+              }
+
+              Navigator.of(context).pop();
+              _createJob(
+                vehicle,
+                customer,
+                phone,
+                services,
+                notesController.text.trim(),
+                source,
+              );
+            },
+            child: const Text('Create Job'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<dynamic> get _pendingJobs => _todayJobs
+      .where((job) => _jobStatusValue(job).toLowerCase() == 'pending')
+      .toList();
+
+  String _customerPhone(dynamic job) {
+    if (job is Map<String, dynamic>) {
+      return job['customerPhone']?.toString() ??
+          job['phone']?.toString() ??
+          job['contact']?.toString() ??
+          '';
+    }
+    return '';
+  }
+
+  String _jobSource(dynamic job) {
+    if (job is Map<String, dynamic>) {
+      final source = job['source']?.toString().toLowerCase() ?? '';
+      if (source.contains('whatsapp') || source.contains('wa')) {
+        return 'WhatsApp';
+      }
+    }
+    return 'Walk-in';
+  }
+
+  Future<void> _acceptNewJob(dynamic job) async {
+    final id = _jobId(job);
+    if (id == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to accept job: missing job ID.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final phone = _customerPhone(job);
+    if (phone.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to accept job: missing customer phone.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _updatingJobId = id;
+    });
+
+    try {
+      await widget.apiService.updateJobStatus(id);
+
+      final customerName = _jobCustomer(job);
+      final vehicleReg = _jobVehicle(job);
+      final message = Uri.encodeComponent(
+        'Hello $customerName, your vehicle $vehicleReg has been accepted at our garage. We will begin work shortly. Thank you!',
+      );
+      final whatsappUri = Uri.parse('https://wa.me/$phone?text=$message');
+
+      if (!await launchUrl(whatsappUri, mode: LaunchMode.externalApplication)) {
+        throw Exception('Could not open WhatsApp.');
+      }
+    } catch (error) {
+      if (mounted) {
+        final message = error is ApiException
+            ? error.toString()
+            : 'Failed to accept job. ${error.toString()}';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingJobId = null;
+        });
+      }
+      await _loadJobs();
+    }
+  }
+
+  void _cancelJob(dynamic job) {
+    setState(() {
+      _todayJobs.remove(job);
+      _createdJobs.removeWhere((created) {
+        final createdId = _jobId(created);
+        final jobId = _jobId(job);
+        return createdId != null && jobId != null && createdId == jobId;
+      });
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Job canceled.')));
+    }
+  }
+
+  Widget _buildNewJobCard(dynamic job) {
+    final services = _jobServices(job);
+    final jobId = _jobId(job);
+    final isAccepting = jobId != null && _updatingJobId == jobId;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    _jobVehicle(job),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (value) {
+                    if (value == 'cancel') {
+                      _cancelJob(job);
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'cancel', child: Text('Cancel')),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _jobCustomer(job),
+                    style: const TextStyle(fontSize: 14, color: Colors.black87),
+                  ),
+                ),
+                Chip(
+                  label: Text(_jobSource(job)),
+                  backgroundColor: Colors.grey.shade100,
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _customerPhone(job),
+              style: const TextStyle(fontSize: 14, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: services.map((service) {
+                return Chip(
+                  label: Text(service),
+                  backgroundColor: Colors.grey.shade100,
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 44,
+              child: ElevatedButton(
+                onPressed: isAccepting ? null : () => _acceptNewJob(job),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: isAccepting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                    : const Text('Accept'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   List<dynamic> get _filteredJobs => _todayJobs
       .where((job) => _jobMatchesFilter(job, _selectedFilter))
       .toList();
@@ -248,14 +653,40 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _jobVehicle(job),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    _jobVehicle(job),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (value) {
+                    if (value == 'cancel') {
+                      _cancelJob(job);
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'cancel', child: Text('Cancel')),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(
               _jobCustomer(job),
               style: const TextStyle(fontSize: 14, color: Colors.black87),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _customerPhone(job),
+              style: const TextStyle(fontSize: 14, color: Colors.black54),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -333,22 +764,49 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
 
   Widget _buildQueueContent() {
     final filtered = _filteredJobs;
-    return RefreshIndicator(
-      onRefresh: _loadJobs,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_errorMessage != null) ...[
-              Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-              const SizedBox(height: 16),
-            ],
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : filtered.isEmpty
-                  ? Center(
+    final pendingJobs = _pendingJobs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_errorMessage != null) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              _errorMessage!,
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: _buildFilterChips(),
+        ),
+        const SizedBox(height: 8),
+        const Divider(height: 1),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _loadJobs,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              children: [
+                if (pendingJobs.isNotEmpty) ...[
+                  const Text(
+                    'New Jobs',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  ...pendingJobs.map(_buildNewJobCard),
+                  const SizedBox(height: 20),
+                ],
+                if (_isLoading) ...[
+                  const SizedBox(
+                    height: 300,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ] else if (filtered.isEmpty) ...[
+                  SizedBox(
+                    height: 300,
+                    child: Center(
                       child: Text(
                         _todayJobs.isEmpty
                             ? 'No jobs available right now.'
@@ -359,48 +817,35 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                         ),
                         textAlign: TextAlign.center,
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: filtered.length,
-                      itemBuilder: (context, index) =>
-                          _buildJobCard(filtered[index]),
                     ),
+                  ),
+                ] else ...[
+                  ...filtered.map(_buildJobCard),
+                ],
+              ],
             ),
-            const SizedBox(height: 12),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   Widget _buildScreenBottomBar() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_selectedIndex == 0) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: _buildFilterChips(),
-          ),
-          const Divider(height: 1),
-        ],
-        BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: (index) {
-            setState(() {
-              _selectedIndex = index;
-            });
-          },
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.view_list_rounded),
-              label: 'Queue',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_rounded),
-              label: 'Dashboard',
-            ),
-          ],
+    return BottomNavigationBar(
+      currentIndex: _selectedIndex,
+      onTap: (index) {
+        setState(() {
+          _selectedIndex = index;
+        });
+      },
+      items: const [
+        BottomNavigationBarItem(
+          icon: Icon(Icons.view_list_rounded),
+          label: 'Queue',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.dashboard_rounded),
+          label: 'Dashboard',
         ),
       ],
     );
@@ -408,9 +853,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
 
   Widget _buildDashboardContent() {
     final totalJobs = _todayJobs.length;
-    final queueJobs = _todayJobs
-        .where((job) => _jobMatchesFilter(job, 'Queue'))
-        .length;
+    final queueJobs = _pendingJobs.length;
     final inProgressJobs = _todayJobs
         .where((job) => _jobMatchesFilter(job, 'In Progress'))
         .length;
@@ -466,11 +909,29 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                     Wrap(
                       spacing: 12,
                       runSpacing: 12,
-                      children: const [
-                        Chip(label: Text('View Today')),
-                        Chip(label: Text('Add New Job')),
-                        Chip(label: Text('Customer History')),
+                      children: [
+                        const Chip(label: Text('View Today')),
+                        ActionChip(
+                          label: const Text('Add Job'),
+                          onPressed: _showAddJobDialog,
+                        ),
+                        const Chip(label: Text('Customer History')),
                       ],
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _showAddJobDialog,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add Job'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
