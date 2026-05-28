@@ -1,30 +1,26 @@
 // apiClient.js
 // Handles all communication between the bot and the backend API
-// When backend is ready: just update BACKEND_URL in .env — nothing else changes
 
 require('dotenv').config();
 const axios = require('axios');
 
 const BASE_URL = process.env.BACKEND_URL || 'http://localhost:3002';
 
-// Shared axios instance
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 5000,
-  headers: {
-    'Content-Type': 'application/json',
-    // When real backend is ready, add: Authorization: `Bearer ${TOKEN}`
-  },
+  headers: { 'Content-Type': 'application/json' },
 });
 
 /**
- * Create a new job card (called when customer completes booking flow)
- * @param {string} phone - customer phone number
- * @param {string} vehicleNumber - vehicle registration number
- * @param {string} serviceName - selected service name
- * @param {string} customerName - optional, will be 'WhatsApp Customer' if unknown
+ * Create a new job card
+ * @param {string} phone
+ * @param {string} vehicleNumber
+ * @param {string} serviceName
+ * @param {string} customerName
+ * @param {boolean} isCustom - true if customer typed a custom service
  */
-async function createJob(phone, vehicleNumber, serviceName, customerName = 'WhatsApp Customer') {
+async function createJob(phone, vehicleNumber, serviceName, customerName = 'Customer', isCustom = false) {
   try {
     const response = await api.post('/jobs/create', {
       customer_phone: phone,
@@ -32,6 +28,8 @@ async function createJob(phone, vehicleNumber, serviceName, customerName = 'What
       vehicle_number: vehicleNumber,
       service: serviceName,
       source: 'whatsapp',
+      is_custom: isCustom,
+      status: isCustom ? 'pending_approval' : 'queued',
     });
     return { success: true, data: response.data };
   } catch (error) {
@@ -42,7 +40,7 @@ async function createJob(phone, vehicleNumber, serviceName, customerName = 'What
 
 /**
  * Get the current status of a vehicle
- * @param {string} vehicleNumber - vehicle registration number
+ * @param {string} vehicleNumber
  */
 async function getJobStatus(vehicleNumber) {
   try {
@@ -55,21 +53,17 @@ async function getJobStatus(vehicleNumber) {
 }
 
 /**
- * Confirm a booking (used by admin action on Flutter app)
- * @param {string} jobId - the job card ID
+ * Cancel a job (only works if status is queued or confirmed)
+ * @param {string} jobId
  */
-async function confirmJob(jobId) {
+async function cancelJob(jobId) {
   try {
-    const response = await api.patch(`/jobs/${jobId}/status`, { status: 'confirmed' });
+    const response = await api.patch(`/jobs/${jobId}/cancel`);
     return { success: true, data: response.data };
   } catch (error) {
-    console.error('[apiClient] confirmJob error:', error.message);
+    console.error('[apiClient] cancelJob error:', error.message);
     return { success: false, error: error.message };
   }
 }
 
-module.exports = {
-  createJob,
-  getJobStatus,
-  confirmJob,
-};
+module.exports = { createJob, getJobStatus, cancelJob };
