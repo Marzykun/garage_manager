@@ -30,16 +30,20 @@ app.post('/jobs/create', (req, res) => {
 
   const jobId = `JOB${++jobCounter}`;
   const job = {
-    job_id:          jobId,
+    job_id:           jobId,
     customer_phone,
-    customer_name:   customer_name || 'Customer',
-    vehicle_number:  vehicle_number.toUpperCase(),
+    customer_name:    customer_name || 'Customer',
+    vehicle_number:   vehicle_number.toUpperCase(),
     service,
-    source:          source || 'whatsapp',
-    is_custom:       is_custom || false,
-    status:          status || 'queued',
+    source:           source || 'whatsapp',
+    is_custom:        is_custom || false,
+    status:           status || 'queued',
     rejection_reason: null,
-    created_at:      new Date().toISOString(),
+    vehicle_type:     req.body.vehicle_type || null,
+    km_run:           req.body.km_run       || null,
+    tyre_size:        req.body.tyre_size    || null,
+    wash_type:        req.body.wash_type    || null,
+    created_at:       new Date().toISOString(),
   };
 
   jobs[jobId] = job;

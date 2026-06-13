@@ -1,5 +1,5 @@
 // apiClient.js
-// Handles all communication between the bot and the backend API
+// Updated to pass vehicle_type, km_run, tyre_size, wash_type to backend
 
 require('dotenv').config();
 const axios = require('axios');
@@ -18,18 +18,23 @@ const api = axios.create({
  * @param {string} vehicleNumber
  * @param {string} serviceName
  * @param {string} customerName
- * @param {boolean} isCustom - true if customer typed a custom service
+ * @param {boolean} isCustom
+ * @param {object} extra - { vehicleType, kmRun, tyreSize, washType }
  */
-async function createJob(phone, vehicleNumber, serviceName, customerName = 'Customer', isCustom = false) {
+async function createJob(phone, vehicleNumber, serviceName, customerName = 'Customer', isCustom = false, extra = {}) {
   try {
     const response = await api.post('/jobs/create', {
-      customer_phone: phone,
-      customer_name: customerName,
-      vehicle_number: vehicleNumber,
-      service: serviceName,
-      source: 'whatsapp',
-      is_custom: isCustom,
-      status: isCustom ? 'pending_approval' : 'queued',
+      customer_phone:  phone,
+      customer_name:   customerName,
+      vehicle_number:  vehicleNumber,
+      service:         serviceName,
+      source:          'whatsapp',
+      is_custom:       isCustom,
+      status:          isCustom ? 'pending_approval' : 'queued',
+      vehicle_type:    extra.vehicleType || null,
+      km_run:          extra.kmRun       || null,
+      tyre_size:       extra.tyreSize    || null,
+      wash_type:       extra.washType    || null,
     });
     return { success: true, data: response.data };
   } catch (error) {
@@ -38,10 +43,6 @@ async function createJob(phone, vehicleNumber, serviceName, customerName = 'Cust
   }
 }
 
-/**
- * Get the current status of a vehicle
- * @param {string} vehicleNumber
- */
 async function getJobStatus(vehicleNumber) {
   try {
     const response = await api.get(`/customers/search?q=${vehicleNumber}`);
@@ -52,10 +53,6 @@ async function getJobStatus(vehicleNumber) {
   }
 }
 
-/**
- * Cancel a job (only works if status is queued or confirmed)
- * @param {string} jobId
- */
 async function cancelJob(jobId) {
   try {
     const response = await api.patch(`/jobs/${jobId}/cancel`);
