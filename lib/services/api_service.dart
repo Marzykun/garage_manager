@@ -2,9 +2,16 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-// 10.0.2.2 = host PC localhost as seen from Android emulator
-// Switch back to http://192.168.1.10:3000 when running on the real phone
-const String kApiBaseUrl = 'http://10.0.2.2:3000';
+// PRODUCTION (on-device): backend + PostgreSQL run on this same phone via Termux,
+// so 127.0.0.1 is the phone's own localhost — this is the default for release builds.
+//
+// DEV override without editing code, e.g. Android emulator → host PC:
+//   flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
+//   flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000   (real phone on Wi-Fi)
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://127.0.0.1:3000',
+);
 
 class ApiService {
   String? _jwtToken;

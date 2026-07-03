@@ -34,7 +34,7 @@ CREATE TYPE service_type AS ENUM (
   'other'
 );
 
-CREATE TYPE job_status AS ENUM ('pending', 'in_progress', 'completed');
+CREATE TYPE job_status AS ENUM ('pending', 'in_progress', 'completed', 'cancelled');
 CREATE TYPE job_source AS ENUM ('walkin', 'whatsapp');
 
 -- JOB CARDS (updated with service_type, date, time)
@@ -73,6 +73,7 @@ CREATE TABLE wheel_balancing (
   rl_weight   NUMERIC(6,2),
   rr_weight   NUMERIC(6,2),
   remarks     TEXT,
+  round_type  TEXT DEFAULT 'before',
   created_at  TIMESTAMPTZ DEFAULT now()
 );
 
@@ -177,3 +178,43 @@ CREATE TABLE garage_settings (
 
 INSERT INTO garage_settings (garage_name, password)
 VALUES ('My Garage', 'garage123');
+
+-- OWNER CREDENTIALS (owner login — username + password)
+CREATE TABLE owner_credentials (
+  id         SERIAL PRIMARY KEY,
+  username   TEXT UNIQUE NOT NULL,
+  password   TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+INSERT INTO owner_credentials (username, password)
+VALUES ('owner', 'owner123');
+
+-- SERVICE DETAILS (generic per-job service log: car wash, full service, etc.)
+CREATE TABLE service_details (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_card_id  UUID REFERENCES job_cards(id) ON DELETE CASCADE,
+  service_type TEXT NOT NULL,
+  remarks      TEXT,
+  parts_used   TEXT,
+  created_at   TIMESTAMPTZ DEFAULT now()
+);
+
+-- TYRE CHANGE DETAILS (tyres fitted on a job — decrements tyre_stock)
+CREATE TABLE tyre_change_details (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_card_id UUID REFERENCES job_cards(id) ON DELETE CASCADE,
+  tyre_id     UUID REFERENCES tyre_stock(id) ON DELETE RESTRICT,
+  quantity    INTEGER NOT NULL,
+  remarks     TEXT,
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+-- TYRE SALES (standalone tyre sales, not tied to a job)
+CREATE TABLE tyre_sales (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tyre_id      UUID REFERENCES tyre_stock(id) ON DELETE RESTRICT,
+  quantity     INTEGER NOT NULL DEFAULT 1,
+  total_amount NUMERIC(10,2) DEFAULT 0,
+  created_at   TIMESTAMPTZ DEFAULT now()
+);
