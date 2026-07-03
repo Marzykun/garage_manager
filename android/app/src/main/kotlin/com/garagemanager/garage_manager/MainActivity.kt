@@ -1,4 +1,4 @@
-package com.example.garage_manager
+package com.garagemanager.garage_manager
 
 import io.flutter.embedding.android.FlutterActivity
 

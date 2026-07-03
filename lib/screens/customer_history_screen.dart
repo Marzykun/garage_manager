@@ -106,9 +106,14 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
 
   String _customerVehicle(dynamic item) {
     if (item is Map<String, dynamic>) {
+      // Backend returns a 'vehicles' array on the customer object
+      final vehicles = item['vehicles'];
+      if (vehicles is List && vehicles.isNotEmpty) {
+        return (vehicles.first as Map<String, dynamic>)['vehicle_number']?.toString() ?? 'Unknown vehicle';
+      }
       return item['vehicleReg']?.toString() ??
           item['vehicle']?.toString() ??
-          'Unknown vehicle';
+          'No vehicle registered';
     }
     return 'Unknown vehicle';
   }
@@ -255,12 +260,14 @@ class _CustomerHistoryDetailScreenState
 
   String _formatDate(dynamic record) {
     if (record is Map<String, dynamic>) {
-      final raw = record['date'] ?? record['visitDate'] ?? record['createdAt'];
+      final raw = record['created_at'] ?? record['service_date'] ?? record['date'] ?? record['visitDate'];
       if (raw is String && raw.isNotEmpty) {
-        return raw;
-      }
-      if (raw is DateTime) {
-        return '${raw.year}-${raw.month.toString().padLeft(2, '0')}-${raw.day.toString().padLeft(2, '0')}';
+        try {
+          final d = DateTime.parse(raw).toLocal();
+          return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+        } catch (_) {
+          return raw;
+        }
       }
     }
     return 'Unknown date';
@@ -268,24 +275,24 @@ class _CustomerHistoryDetailScreenState
 
   String _formatServices(dynamic record) {
     if (record is Map<String, dynamic>) {
+      // Backend returns single service_type enum string
+      final serviceType = record['service_type'];
+      if (serviceType is String) {
+        return serviceType.replaceAll('_', ' ').split(' ').map((w) =>
+          w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : w
+        ).join(' ');
+      }
       final services = record['services'];
-      if (services is List) {
-        return services.map((value) => value.toString()).join(', ');
-      }
-      if (services is String) {
-        return services;
-      }
+      if (services is List) return services.map((v) => v.toString()).join(', ');
+      if (services is String) return services;
     }
     return 'No services available';
   }
 
   String _formatAmount(dynamic record) {
     if (record is Map<String, dynamic>) {
-      final amount =
-          record['amount'] ?? record['billedAmount'] ?? record['total'];
-      if (amount != null) {
-        return amount.toString();
-      }
+      final amount = record['total_amount'] ?? record['amount'] ?? record['billedAmount'] ?? record['total'];
+      if (amount != null) return amount.toString();
     }
     return 'N/A';
   }
@@ -370,9 +377,7 @@ class _CustomerHistoryDetailScreenState
                           ),
                           Chip(
                             label: Text(status),
-                            backgroundColor: _statusColor(
-                              status,
-                            ).withOpacity(0.18),
+                            backgroundColor: _statusColor(status).withValues(alpha: 0.18),
                             labelStyle: TextStyle(color: _statusColor(status)),
                           ),
                         ],

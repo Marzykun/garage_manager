@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/build/
+
+# Node (backend + WhatsApp bot)
+node_modules/
+
+# Secrets — never commit real credentials
+.env
+!.env.example

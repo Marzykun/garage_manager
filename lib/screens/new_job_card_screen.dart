@@ -2,9 +2,33 @@ import 'package:flutter/material.dart';
 
 import 'package:garage_manager/services/api_service.dart';
 
+const _colorPrimary = Color(0xFF2D3A4A);
+const _colorHeading = Color(0xFF1A2332);
+const _colorSubtext = Color(0xFF7A869A);
+const _colorBorder  = Color(0xFFE8EAED);
+
+const _serviceOptions = [
+  'Wheel Alignment',
+  'Wheel Balancing',
+  'Tyre Change',
+  'Water Wash',
+  'Full Service',
+  'Car Wash',
+  'Other',
+];
+
+const _serviceIcons = {
+  'Wheel Alignment':  Icons.tune,
+  'Wheel Balancing':  Icons.rotate_right,
+  'Tyre Change':      Icons.tire_repair,
+  'Water Wash':       Icons.water_drop_outlined,
+  'Full Service':     Icons.build_outlined,
+  'Car Wash':         Icons.local_car_wash_outlined,
+  'Other':            Icons.miscellaneous_services_outlined,
+};
+
 class NewJobCardScreen extends StatefulWidget {
   const NewJobCardScreen({super.key, required this.apiService});
-
   final ApiService apiService;
 
   @override
@@ -12,251 +36,286 @@ class NewJobCardScreen extends StatefulWidget {
 }
 
 class _NewJobCardScreenState extends State<NewJobCardScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _vehicleController = TextEditingController();
-  final TextEditingController _customerNameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _notesController = TextEditingController();
-  final List<String> _serviceOptions = [
-    'Wash',
-    'Tyre Change',
-    'Alignment',
-    'Balancing',
-  ];
-  late List<bool> _selectedServices;
-  String _source = 'Walk-in';
-  String? _servicesError;
-  bool _isSubmitting = false;
+  final _formKey              = GlobalKey<FormState>();
+  final _vehicleCtrl          = TextEditingController();
+  final _customerNameCtrl     = TextEditingController();
+  final _phoneCtrl            = TextEditingController();
+  final _notesCtrl            = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    _selectedServices = List<bool>.filled(_serviceOptions.length, false);
-  }
+  String? _selectedService;
+  String  _source       = 'Walk-in';
+  bool    _isSubmitting = false;
+  String? _serviceError;
 
   @override
   void dispose() {
-    _vehicleController.dispose();
-    _customerNameController.dispose();
-    _phoneController.dispose();
-    _notesController.dispose();
+    _vehicleCtrl.dispose();
+    _customerNameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _notesCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    final form = _formKey.currentState;
-    if (form == null || !form.validate()) {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    if (_selectedService == null) {
+      setState(() => _serviceError = 'Please select a service.');
       return;
     }
 
-    final selectedServices = <String>[];
-    for (var i = 0; i < _serviceOptions.length; i++) {
-      if (_selectedServices[i]) {
-        selectedServices.add(_serviceOptions[i]);
-      }
-    }
-
-    if (selectedServices.isEmpty) {
-      setState(() {
-        _servicesError = 'Please select at least one service.';
-      });
-      return;
-    }
-
-    setState(() {
-      _servicesError = null;
-      _isSubmitting = true;
-    });
+    setState(() { _serviceError = null; _isSubmitting = true; });
 
     try {
-      await widget.apiService.createCustomer(
-        _customerNameController.text.trim(),
-        _phoneController.text.trim(),
-        _vehicleController.text.trim(),
-      );
-
       await widget.apiService.createJob(
-        _vehicleController.text.trim(),
-        _customerNameController.text.trim(),
-        _phoneController.text.trim(),
-        selectedServices,
-        _notesController.text.trim(),
+        _vehicleCtrl.text.trim(),
+        _customerNameCtrl.text.trim(),
+        _phoneCtrl.text.trim(),
+        [_selectedService!],
+        _notesCtrl.text.trim(),
         _source,
       );
-
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (error) {
-      final message = error is ApiException
-          ? error.toString()
-          : 'Unable to submit job. ${error.toString()}';
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error is ApiException ? error.toString() : 'Unable to submit job.'),
+      ));
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
+      if (mounted) setState(() => _isSubmitting = false);
     }
-  }
-
-  Widget _buildServiceCheckbox(int index) {
-    return CheckboxListTile(
-      title: Text(_serviceOptions[index]),
-      value: _selectedServices[index],
-      onChanged: (value) {
-        setState(() {
-          _selectedServices[index] = value ?? false;
-        });
-      },
-      controlAffinity: ListTileControlAffinity.leading,
-      contentPadding: EdgeInsets.zero,
-    );
-  }
-
-  Widget _buildSourceSelector() {
-    return Row(
-      children: [
-        Expanded(
-          child: ChoiceChip(
-            label: const Text('Walk-in'),
-            selected: _source == 'Walk-in',
-            onSelected: (_) => setState(() => _source = 'Walk-in'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ChoiceChip(
-            label: const Text('WhatsApp'),
-            selected: _source == 'WhatsApp',
-            onSelected: (_) => setState(() => _source = 'WhatsApp'),
-          ),
-        ),
-      ],
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New Job Card')),
-      body: SafeArea(
-        child: GestureDetector(
-          onTap: () => FocusScope.of(context).unfocus(),
-          child: Form(
-            key: _formKey,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                TextFormField(
-                  controller: _vehicleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Vehicle Registration',
-                    prefixIcon: Icon(Icons.directions_car),
-                    border: OutlineInputBorder(),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Vehicle registration is required.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _customerNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Customer Name',
-                    prefixIcon: Icon(Icons.person),
-                    border: OutlineInputBorder(),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Customer name is required.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Customer Phone',
-                    prefixIcon: Icon(Icons.phone),
-                    border: OutlineInputBorder(),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Phone number is required.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Services',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        title: const Text('New Job Card'),
+        backgroundColor: _colorPrimary,
+        foregroundColor: Colors.white,
+      ),
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _card(children: [
+                _label('Vehicle Registration *'),
                 const SizedBox(height: 8),
-                ...List.generate(_serviceOptions.length, _buildServiceCheckbox),
-                if (_servicesError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8, left: 12),
-                    child: Text(
-                      _servicesError!,
-                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                _field(_vehicleCtrl, 'e.g. MH12AB1234',
+                    icon: Icons.directions_car_outlined,
+                    caps: TextCapitalization.characters,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+              ]),
+              const SizedBox(height: 12),
+
+              _card(children: [
+                _label('Customer Details'),
+                const SizedBox(height: 12),
+                _field(_customerNameCtrl, 'Customer Name',
+                    icon: Icons.person_outline,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+                const SizedBox(height: 12),
+                _field(_phoneCtrl, 'Phone Number',
+                    icon: Icons.phone_outlined,
+                    keyboardType: TextInputType.phone,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+              ]),
+              const SizedBox(height: 12),
+
+              _card(children: [
+                _label('Service Type *'),
+                const SizedBox(height: 12),
+                _ServiceGrid(
+                  selected: _selectedService,
+                  onSelect: (s) => setState(() { _selectedService = s; _serviceError = null; }),
+                ),
+                if (_serviceError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_serviceError!,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFFE53935))),
+                ],
+              ]),
+              const SizedBox(height: 12),
+
+              _card(children: [
+                _label('Source'),
+                const SizedBox(height: 10),
+                Row(children: [
+                  for (final src in ['Walk-in', 'WhatsApp'])
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(right: src == 'Walk-in' ? 8 : 0),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _source = src),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _source == src ? _colorPrimary : Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: _source == src ? _colorPrimary : _colorBorder),
+                            ),
+                            child: Text(src,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w600,
+                                  color: _source == src ? Colors.white : _colorSubtext,
+                                )),
+                          ),
+                        ),
+                      ),
+                    ),
+                ]),
+              ]),
+              const SizedBox(height: 12),
+
+              _card(children: [
+                _label('Notes (optional)'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _notesCtrl,
+                  maxLines: 3,
+                  style: const TextStyle(fontSize: 14, color: _colorHeading),
+                  decoration: InputDecoration(
+                    hintText: 'Any additional notes…',
+                    hintStyle: const TextStyle(fontSize: 13, color: _colorSubtext),
+                    contentPadding: const EdgeInsets.all(12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _colorBorder),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _colorBorder),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _colorPrimary, width: 1.5),
                     ),
                   ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Source',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 8),
-                _buildSourceSelector(),
-                const SizedBox(height: 24),
-                TextFormField(
-                  controller: _notesController,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes (optional)',
-                    prefixIcon: Icon(Icons.note),
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 4,
-                  textInputAction: TextInputAction.newline,
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton(
+              ]),
+              const SizedBox(height: 24),
+
+              SizedBox(
+                height: 52,
+                child: ElevatedButton(
                   onPressed: _isSubmitting ? null : _submit,
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: _colorPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   child: _isSubmitting
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : const Text('Submit'),
+                      ? const SizedBox(height: 22, width: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                      : const Text('Create Job Card',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 40),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _card({required List<Widget> children}) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: _colorBorder),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+  );
+
+  Widget _label(String text) => Text(text,
+      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _colorHeading));
+
+  Widget _field(
+    TextEditingController ctrl,
+    String hint, {
+    IconData? icon,
+    TextInputType? keyboardType,
+    TextCapitalization caps = TextCapitalization.none,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: ctrl,
+      keyboardType: keyboardType,
+      textCapitalization: caps,
+      validator: validator,
+      style: const TextStyle(fontSize: 14, color: _colorHeading),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(fontSize: 13, color: _colorSubtext),
+        prefixIcon: icon != null ? Icon(icon, size: 20, color: _colorSubtext) : null,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: _colorBorder)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: _colorBorder)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: _colorPrimary, width: 1.5)),
+        errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFFE53935))),
+        focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFFE53935), width: 1.5)),
+      ),
+    );
+  }
+}
+
+// ── Service selector grid ──────────────────────────────────────────────────────
+
+class _ServiceGrid extends StatelessWidget {
+  const _ServiceGrid({required this.selected, required this.onSelect});
+  final String? selected;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.count(
+      crossAxisCount: 3,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: 1.1,
+      children: _serviceOptions.map((s) {
+        final sel = selected == s;
+        return GestureDetector(
+          onTap: () => onSelect(s),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            decoration: BoxDecoration(
+              color: sel ? _colorPrimary : const Color(0xFFF0F4F8),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: sel ? _colorPrimary : _colorBorder),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(_serviceIcons[s] ?? Icons.miscellaneous_services_outlined,
+                    size: 22, color: sel ? Colors.white : _colorSubtext),
+                const SizedBox(height: 6),
+                Text(s,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w600,
+                      color: sel ? Colors.white : _colorSubtext,
+                    )),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }
