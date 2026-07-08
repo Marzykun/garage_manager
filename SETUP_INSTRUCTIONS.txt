@@ -1,0 +1,153 @@
+==============================================================
+ GARAGE MANAGER — PHONE SETUP INSTRUCTIONS
+ Everything runs on this one phone. No internet needed after setup.
+==============================================================
+
+WHAT YOU NEED
+ - The dedicated garage phone (Android)
+ - Internet only for the setup steps below (Wi-Fi is fine)
+ - The app file: app-release.apk (we will send it to you)
+
+--------------------------------------------------------------
+ PART 1 — INSTALL TERMUX  (one time)
+--------------------------------------------------------------
+Termux is the program that runs the garage database on the phone.
+Do NOT install it from the Play Store (that version is broken).
+
+1. Open the phone's browser and go to:  https://f-droid.org
+2. Tap "Download F-Droid" and open the downloaded file.
+   If the phone asks for permission to install, allow it.
+3. Open the F-Droid app and wait a minute for it to load.
+4. In F-Droid, search "Termux" and install it.
+5. In F-Droid, search "Termux:Boot" and install it too.
+6. Open the Termux:Boot app ONCE, then close it.
+   (This lets the server start by itself when the phone restarts.)
+
+--------------------------------------------------------------
+ PART 2 — INSTALL THE SERVER  (one time)
+--------------------------------------------------------------
+Open the Termux app. You will see a black screen where you can type.
+Type each line below EXACTLY, and press Enter after each one.
+Some steps take a few minutes — wait for the typing prompt ($) to
+come back before typing the next line.
+
+STEP 1 — install the software:
+
+    pkg update -y && pkg upgrade -y
+    pkg install -y nodejs postgresql git openssl
+
+STEP 2 — download the garage program:
+
+    cd ~
+    git clone https://github.com/Marzykun/garage_manager.git
+    cd garage_manager/Garage_backend/backend
+    npm install
+
+  (If it asks for a username/password here, contact us — we will
+   send you a login token to paste.)
+
+STEP 3 — create the database:
+
+    initdb $PREFIX/var/lib/postgresql
+    pg_ctl -D $PREFIX/var/lib/postgresql start
+    createuser --superuser postgres
+    createdb garage_db
+    psql -U postgres -d garage_db -f schema.sql
+
+  You should see many lines saying CREATE TABLE. That is correct.
+
+STEP 4 — create the settings file (type each line, Enter after each):
+
+    echo "PORT=3000" > .env
+    echo "DB_HOST=localhost" >> .env
+    echo "DB_PORT=5432" >> .env
+    echo "DB_NAME=garage_db" >> .env
+    echo "DB_USER=postgres" >> .env
+    echo "DB_PASSWORD=garage123" >> .env
+    echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+
+  NOTE: the first line uses ONE arrow (>), all the others use TWO (>>).
+
+STEP 5 — test it:
+
+    node server.js
+
+  Wait a few seconds. You should see:
+
+      Garage server running on 127.0.0.1:3000
+      Database connected successfully!
+
+  If you see both lines: IT WORKS. Press Ctrl then C (the CTRL
+  button on Termux's keyboard bar, then the letter c) to stop it.
+
+--------------------------------------------------------------
+ PART 3 — MAKE IT START AUTOMATICALLY  (one time)
+--------------------------------------------------------------
+Still in Termux, type:
+
+    mkdir -p ~/.termux/boot
+    cp ~/garage_manager/Garage_backend/deploy/start-garage.sh ~/.termux/boot/
+    chmod +x ~/.termux/boot/start-garage.sh
+
+Then, in the phone's Settings app:
+
+1. Go to Settings > Battery (or Apps > Termux > Battery).
+2. Turn OFF battery optimization for "Termux" and "Termux:Boot".
+   (Choose "Don't optimize" / "Unrestricted".)
+3. If the phone brand is OnePlus, Xiaomi, Oppo, Vivo or Samsung:
+   also enable "Autostart" / "Auto-launch" for Termux if you see it.
+
+--------------------------------------------------------------
+ PART 4 — INSTALL THE GARAGE MANAGER APP  (one time)
+--------------------------------------------------------------
+1. Copy the file app-release.apk to the phone (WhatsApp, USB,
+   or Google Drive — any way is fine).
+2. Tap the file on the phone and choose Install.
+   If asked, allow installing from this source.
+3. RESTART THE PHONE now. Wait about 1 minute after it turns on.
+4. Open the Garage Manager app (dark blue wheel icon).
+
+FIRST LOGINS:
+   Owner:     username  owner      password  owner123
+   Mechanic:  leave username empty, password  garage123
+
+--------------------------------------------------------------
+ PART 5 — CHANGE THE PASSWORDS  (do this on day one!)
+--------------------------------------------------------------
+1. Log in as Owner.
+2. Go to the Settings tab (bottom right).
+3. Under "Mechanic Password" set a new password for your staff.
+4. Under "Owner Credentials" set your own new username + password.
+5. Write them somewhere safe. We cannot recover lost passwords
+   without resetting the phone's database.
+
+--------------------------------------------------------------
+ DAILY USE
+--------------------------------------------------------------
+Nothing to start manually. Turn the phone on, wait a minute,
+open the app. The database and server start by themselves.
+
+Keep the phone plugged in during work hours if possible.
+
+--------------------------------------------------------------
+ IF THE APP SAYS "CONNECTION ERROR"
+--------------------------------------------------------------
+1. Restart the phone, wait 1 minute, try again.
+2. Still broken? Open Termux and type:
+
+    sh ~/.termux/boot/start-garage.sh
+
+   Then open the app again.
+3. Still broken? Contact us and send a photo of what Termux
+   shows after typing:
+
+    cat ~/garage-backend.log
+
+--------------------------------------------------------------
+ IMPORTANT — DO NOT DO THESE
+--------------------------------------------------------------
+ - Do NOT uninstall Termux, Termux:Boot or F-Droid.
+ - Do NOT "clear data" of Termux (that deletes ALL garage records).
+ - Do NOT swipe-kill Termux from recent apps.
+ - Factory reset = all data gone. Ask us about backups first.
+==============================================================
