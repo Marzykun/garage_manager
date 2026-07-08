@@ -1,4 +1,5 @@
 const settingsModel = require('../models/settingsModel');
+const bcrypt        = require('bcryptjs');
 
 // GET /api/settings
 const getSettings = async (req, res, next) => {
@@ -77,7 +78,7 @@ const updateGaragePassword = async (req, res, next) => {
       });
     }
 
-    await settingsModel.updateGaragePassword(new_password);
+    await settingsModel.updateGaragePassword(bcrypt.hashSync(new_password, 10));
 
     res.status(200).json({
       success: true,
@@ -117,7 +118,7 @@ const updateOwnerCredentials = async (req, res, next) => {
       });
     }
 
-    const result = await settingsModel.updateOwnerCredentials(username, new_password);
+    const result = await settingsModel.updateOwnerCredentials(username, bcrypt.hashSync(new_password, 10));
 
     res.status(200).json({
       success: true,

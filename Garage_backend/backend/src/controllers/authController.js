@@ -1,5 +1,13 @@
-const pool = require('../config/db');
-const jwt  = require('jsonwebtoken');
+const pool   = require('../config/db');
+const jwt    = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+
+// Stored value may be a bcrypt hash (password changed via app) or plaintext
+// (fresh install seed from schema.sql) — support both.
+const passwordMatches = (plain, stored) =>
+  stored && stored.startsWith('$2')
+    ? bcrypt.compareSync(plain, stored)
+    : plain === stored;
 
 // Mechanic login — shared garage password
 const login = async (req, res, next) => {
@@ -24,7 +32,7 @@ const login = async (req, res, next) => {
       });
     }
 
-    if (password !== result.rows[0].password) {
+    if (!passwordMatches(password, result.rows[0].password)) {
       return res.status(401).json({
         success: false,
         message: 'Incorrect password',
@@ -73,7 +81,7 @@ const ownerLogin = async (req, res, next) => {
       });
     }
 
-    if (password !== result.rows[0].password) {
+    if (!passwordMatches(password, result.rows[0].password)) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials',

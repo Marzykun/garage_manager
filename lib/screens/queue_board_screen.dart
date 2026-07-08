@@ -120,7 +120,9 @@ String? jobId(dynamic job) {
 bool jobIsWhatsApp(dynamic job) {
   if (job is Map<String, dynamic>) {
     final src = job['source']?.toString().toLowerCase() ?? '';
-    return src.contains('whatsapp') || src.contains('wa');
+    // NB: match 'whatsapp' only — 'walkin' also contains 'wa', which used to
+    // mis-flag every walk-in job as WhatsApp (opened WhatsApp on accept).
+    return src.contains('whatsapp');
   }
   return false;
 }

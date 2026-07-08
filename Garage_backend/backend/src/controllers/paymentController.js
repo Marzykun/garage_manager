@@ -4,17 +4,26 @@ const pool     = require('../config/db');
 const paymentModel   = require('../models/paymentModel');
 const whatsappService = require('../services/whatsappService');
 
-const razorpay = new Razorpay({
-  key_id:     process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
-
-console.log('Razorpay Key ID:', process.env.RAZORPAY_KEY_ID);
+// Payments are optional (on hold for the local-only delivery). The backend
+// runs without Razorpay keys — payment routes just return 503.
+const razorpay = (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)
+  ? new Razorpay({
+      key_id:     process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    })
+  : null;
 
 // POST /api/payments/create-order
 // Mechanic triggers this to send payment request to customer
 const createOrder = async (req, res, next) => {
   try {
+    if (!razorpay) {
+      return res.status(503).json({
+        success: false,
+        message: 'Online payments are not enabled on this server',
+      });
+    }
+
     const invoice_id = req.body.invoice_id;
 
     if (!invoice_id) {
@@ -107,6 +116,13 @@ const createOrder = async (req, res, next) => {
 // Razorpay calls this webhook after payment is done
 const verifyPayment = async (req, res, next) => {
   try {
+    if (!razorpay) {
+      return res.status(503).json({
+        success: false,
+        message: 'Online payments are not enabled on this server',
+      });
+    }
+
     const {
       razorpay_order_id,
       razorpay_payment_id,

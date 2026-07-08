@@ -70,6 +70,11 @@ DB_PASSWORD=garage123
 JWT_SECRET=garage_secret_key_2025
 ```
 
+> 🔐 On the customer's phone, set `JWT_SECRET` to a unique random string
+> (e.g. output of `openssl rand -hex 32` in Termux) instead of the dev value.
+> The Razorpay/bot keys can be omitted entirely — payments are disabled unless
+> keys are present.
+
 > ⚠️ `.env` is git-ignored, so `git clone` will **not** create it. Copy it onto
 > the phone manually (or recreate it with the values above) before first run.
 

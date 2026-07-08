@@ -6,7 +6,6 @@ import 'package:garage_manager/screens/inventory_screen.dart';
 const _colorPrimary   = Color(0xFF2D3A4A);
 const _colorHeading   = Color(0xFF1A2332);
 const _colorSubtext   = Color(0xFF7A869A);
-const _colorBodyText  = Color(0xFF4A5568);
 const _colorBorder    = Color(0xFFE8EAED);
 const _colorErrorText = Color(0xFFE53935);
 

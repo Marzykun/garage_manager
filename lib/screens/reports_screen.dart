@@ -8,11 +8,8 @@ const _colorBodyText   = Color(0xFF4A5568);
 const _colorBorder     = Color(0xFFE8EAED);
 const _colorInputBg    = Color(0xFFF0F2F5);
 const _colorSuccess    = Color(0xFF27AE60);
-const _colorSuccessBg  = Color(0x1A27AE60);
 const _colorWarning    = Color(0xFFE67E22);
-const _colorWarningBg  = Color(0x1AE67E22);
 const _colorInfo       = Color(0xFF2980B9);
-const _colorInfoBg     = Color(0x1A2980B9);
 const _colorErrorText  = Color(0xFFE53935);
 
 class ReportsScreen extends StatefulWidget {
