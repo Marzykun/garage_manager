@@ -29,6 +29,9 @@ class _BillingScreenState extends State<BillingScreen> {
   Map<String, dynamic>? _billPreview;
   String _selectedPaymentMethod = 'cash';
 
+  // Parts priced automatically from the job's logged tyre changes
+  List<String> _loggedPartsLines = [];
+
   final TextEditingController _labourCtrl   = TextEditingController(text: '0');
   final TextEditingController _partsCtrl    = TextEditingController(text: '0');
   final TextEditingController _discountCtrl = TextEditingController(text: '0');
@@ -106,6 +109,34 @@ class _BillingScreenState extends State<BillingScreen> {
         }
       } catch (_) {
         // No existing invoice — that's fine, user will generate one
+      }
+
+      // Auto-price parts from the job's logged tyre changes (fixed rates in tyre stock).
+      // Inventory parts are free-text with no price column, so tyres are the
+      // only auto-priceable part today.
+      try {
+        final tc = await widget.apiService.getTyreChangeByJob(widget.jobId);
+        final rows = (tc is Map<String, dynamic>)
+            ? (tc['data'] as List? ?? [])
+            : (tc as List? ?? []);
+        double total = 0;
+        final lines = <String>[];
+        for (final r in rows) {
+          final qty   = int.tryParse(r['quantity']?.toString() ?? '') ?? 0;
+          final price = double.tryParse(r['price']?.toString() ?? '') ?? 0;
+          if (qty <= 0 || price <= 0) continue;
+          total += qty * price;
+          lines.add('${r['brand'] ?? ''} ${r['size'] ?? ''} ×$qty = ₹${(qty * price).toStringAsFixed(0)}');
+        }
+        if (total > 0) {
+          _loggedPartsLines = lines;
+          // Prefill only when there's no saved invoice and the field is untouched
+          if (_billPreview == null && (double.tryParse(_partsCtrl.text.trim()) ?? 0) == 0) {
+            _partsCtrl.text = total.toStringAsFixed(0);
+          }
+        }
+      } catch (_) {
+        // Tyre log unavailable — leave parts manual
       }
     } catch (error) {
       setState(() {
@@ -318,6 +349,14 @@ class _BillingScreenState extends State<BillingScreen> {
           _AmountField(ctrl: _labourCtrl,   label: 'Labour Charge (₹)',  onChanged: (_) => setState(() {})),
           const SizedBox(height: 12),
           _AmountField(ctrl: _partsCtrl,    label: 'Parts Charge (₹)',   onChanged: (_) => setState(() {})),
+          if (_loggedPartsLines.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                'From job log: ${_loggedPartsLines.join(', ')}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7A869A)),
+              ),
+            ),
           const SizedBox(height: 12),
           _AmountField(ctrl: _discountCtrl, label: 'Discount (₹)',       onChanged: (_) => setState(() {})),
           const SizedBox(height: 16),
