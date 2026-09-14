@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Internet permission required for all API calls -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Lets the "Start Server" button ask Termux to run the backend start script.
+         Termux only honours this from apps that hold this permission AND have
+         allow-external-apps=true set in ~/.termux/termux.properties. -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
 
     <application
         android:label="Garage Manager"
@@ -45,5 +49,7 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Needed to see/launch Termux's RunCommandService for the "Start Server" button. -->
+        <package android:name="com.termux"/>
     </queries>
 </manifest>

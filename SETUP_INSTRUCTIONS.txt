@@ -89,6 +89,13 @@ Still in Termux, type:
     cp ~/garage_manager/Garage_backend/deploy/start-garage.sh ~/.termux/boot/
     chmod +x ~/.termux/boot/start-garage.sh
 
+Also type these two lines. This lets the app's "Start Server" button
+(on the login screen) turn the server on by itself if it's ever down,
+without opening Termux:
+
+    echo "allow-external-apps=true" >> ~/.termux/termux.properties
+    termux-reload-settings
+
 Then, in the phone's Settings app:
 
 1. Go to Settings > Battery (or Apps > Termux > Battery).
@@ -132,8 +139,11 @@ Keep the phone plugged in during work hours if possible.
 --------------------------------------------------------------
  IF THE APP SAYS "CONNECTION ERROR"
 --------------------------------------------------------------
-1. Restart the phone, wait 1 minute, try again.
-2. Still broken? Open Termux and type:
+1. On the login screen, check the status dot below the title. If
+   it says "Server not responding", tap the "Start Server" button
+   right there and wait about 10 seconds — no need to open Termux.
+2. Still not working? Restart the phone, wait 1 minute, try again.
+3. Still broken? Open Termux and type:
 
     sh ~/.termux/boot/start-garage.sh
 

@@ -50,6 +50,20 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
+  /// Lightweight reachability check for the on-device server — used by the
+  /// "Start Server" flow on the login screen. Any HTTP response (even an
+  /// error status) means something is listening; a timeout/socket error
+  /// means the backend isn't up.
+  Future<bool> pingServer({Duration timeout = const Duration(seconds: 3)}) async {
+    try {
+      final uri = Uri.parse(kApiBaseUrl);
+      await http.get(uri).timeout(timeout);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Mechanic login → only needs password (shared garage password).
   /// Owner login   → needs username + password, hits /owner-login.
   Future<dynamic> login(String username, String password) async {

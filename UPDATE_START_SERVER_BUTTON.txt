@@ -1,0 +1,97 @@
+==============================================================
+ GARAGE MANAGER — UPDATE: "START SERVER" BUTTON
+ For the phone that already has the app installed and working.
+ This adds one button on the login screen that turns the backend
+ server on by itself — no need to open Termux anymore.
+==============================================================
+
+WHAT YOU NEED
+ - The client's phone (the app is already on it)
+ - The new file: app-release.apk (sent to you separately)
+ - 5 minutes, once
+
+This is a two-part job: (1) run ONE command in Termux, (2) install
+the new app. Do them in this order.
+
+--------------------------------------------------------------
+ PART 1 — ONE-TIME TERMUX COMMAND  (do this first)
+--------------------------------------------------------------
+This tells Termux it's allowed to accept a "start the server" request
+from the Garage Manager app. Without this step the new button will
+show an error when tapped.
+
+1. Open the Termux app on the phone (the black terminal screen).
+2. Type this EXACTLY and press Enter:
+
+    echo "allow-external-apps=true" >> ~/.termux/termux.properties
+
+3. Then type this and press Enter:
+
+    termux-reload-settings
+
+   (No visible output is normal — that means it worked.)
+
+--------------------------------------------------------------
+ PART 2 — INSTALL THE NEW APP VERSION
+--------------------------------------------------------------
+1. Copy the new app-release.apk onto the phone (WhatsApp, USB,
+   Google Drive — any way is fine), replacing the old file if you
+   saved it anywhere.
+2. Tap the file and choose Install.
+
+   TWO POSSIBLE OUTCOMES:
+
+   a) It installs straight over the old app ("Update"). Great —
+      nothing else to do here, go to Part 3.
+
+   b) Android says something like "App not installed — package
+      conflicts with an existing package" or similar. That means
+      this build was signed differently from the one already on
+      the phone. In that case:
+        - Open Settings > Apps > Garage Manager > Uninstall.
+        - Then install app-release.apk again — it will go in clean.
+        - The garage's job/customer data is NOT affected — that
+          all lives in Termux/Postgres, not in the app itself.
+          You will just need to log in again afterward.
+
+--------------------------------------------------------------
+ PART 3 — TEST THE BUTTON
+--------------------------------------------------------------
+1. Open Garage Manager. On the login screen, under the "Garage
+   Manager" title, you'll see a small status dot:
+       green "Server online"        → already running, nothing to do
+       red   "Server not responding" → tap the "Start Server" button
+                                        right below it
+2. The FIRST time you ever tap it, Android may pop up a permission
+   box asking to let Garage Manager run commands / control Termux.
+   Tap "Allow" (or "While using the app"). This only happens once.
+3. The button shows "Starting…" and a message "Start command sent
+   to Termux — waiting for the server…". Give it 5–10 seconds —
+   it's starting Postgres and then the backend, same as it does
+   automatically on phone restart.
+4. The dot should turn green and say "Server online" by itself.
+   Log in as usual after that.
+
+--------------------------------------------------------------
+ IF THE BUTTON DOESN'T WORK
+--------------------------------------------------------------
+ - "Permission to control Termux was denied" — go to Android
+   Settings > Apps > Garage Manager > Permissions, and turn on
+   whatever permission mentions "Run commands" / Termux, then
+   try the button again.
+ - Still red after 20–30 seconds — open Termux and check what
+   happened:
+
+     cat ~/garage-backend.log
+
+   Send us a photo of that output.
+ - "Could not reach Termux" error — double-check Part 1 was typed
+   exactly right (open Termux and run
+   `cat ~/.termux/termux.properties` — you should see the line
+   allow-external-apps=true in there, not starting with a #).
+
+Nothing else about daily use changes — the server still starts by
+itself on phone restart. This button is just a manual backup for
+if it doesn't (Termux got killed, phone was force-restarted, etc.)
+so you never have to open Termux and type commands by hand again.
+==============================================================
