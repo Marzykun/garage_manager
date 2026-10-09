@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:garage_manager/services/api_service.dart';
+import 'package:garage_manager/screens/invoice_print_screen.dart';
 
 const double _kGstRate = 0.18; // 18% GST as per client spec
 
@@ -313,6 +314,14 @@ class _BillingScreenState extends State<BillingScreen> {
     }
   }
 
+  void _openPrint() {
+    final invoiceId = _billPreview?['billId']?.toString();
+    if (invoiceId == null) { _showSnack('Generate the invoice first.'); return; }
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => InvoicePrintScreen(apiService: widget.apiService, invoiceId: invoiceId),
+    ));
+  }
+
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -325,7 +334,17 @@ class _BillingScreenState extends State<BillingScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Generate Invoice')),
+      appBar: AppBar(
+        title: const Text('Generate Invoice'),
+        actions: [
+          if (_billPreview?['billId'] != null)
+            IconButton(
+              tooltip: 'Print invoice',
+              onPressed: _openPrint,
+              icon: const Icon(Icons.print_rounded),
+            ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -451,6 +470,17 @@ class _BillingScreenState extends State<BillingScreen> {
                     'Total',
                     '₹${(_billPreview!['total'] is num) ? (_billPreview!['total'] as num).toStringAsFixed(2) : _billPreview!['total']}',
                     bold: true,
+                  ),
+                  // ── Print ─────────────────────────────────────────────────
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: _openPrint,
+                      icon: const Icon(Icons.print_rounded, size: 18),
+                      label: const Text('View & Print Invoice'),
+                    ),
                   ),
                   // ── Collect payment ───────────────────────────────────────
                   if (_billPreview!['payment_status'] != 'paid') ...[

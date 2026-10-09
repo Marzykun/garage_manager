@@ -96,6 +96,12 @@ without opening Termux:
     echo "allow-external-apps=true" >> ~/.termux/termux.properties
     termux-reload-settings
 
+And this one, then tap "Allow" when the phone asks about storage/files.
+It lets the automatic monthly backups be saved in the phone's storage
+(folder GarageManager/backups), so they survive even if Termux is removed:
+
+    termux-setup-storage
+
 Then, in the phone's Settings app:
 
 1. Go to Settings > Battery (or Apps > Termux > Battery).
@@ -152,6 +158,29 @@ Keep the phone plugged in during work hours if possible.
    shows after typing:
 
     cat ~/garage-backend.log
+
+--------------------------------------------------------------
+ BACKUPS
+--------------------------------------------------------------
+The app backs up all garage data by itself every 30 days and keeps
+the last 12 (about one year). Each backup is small (well under 1 MB).
+
+See them in the app: log in as Owner > Settings > "Data Backup".
+ - "Back Up Now" makes one immediately (do this before any big change).
+ - Share: sends a backup file to WhatsApp / Google Drive. Do this once
+   a month so a copy exists OFF the phone, in case the phone is lost.
+ - Restore: puts the data back exactly as it was on that date. The
+   current data is saved as a "Safety copy" first, so it can be undone.
+
+IF THE PHONE IS LOST, BROKEN OR RESET:
+1. Set up the new phone with Parts 1–4 above as normal.
+2. Download the latest backup file (garage-backup-....dump) from
+   WhatsApp / Drive onto the new phone. It goes into "Download".
+3. In Termux, type (put the real file name at the end):
+
+    pg_restore --clean --if-exists --no-owner -d garage_db ~/storage/shared/Download/garage-backup-XXXX.dump
+
+4. Restart the phone. All jobs, customers and invoices are back.
 
 --------------------------------------------------------------
  IMPORTANT — DO NOT DO THESE

@@ -17,6 +17,7 @@ const appointmentRoutes = require('./routes/appointmentRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const ownerOnly    = require('./middleware/ownerMiddleware');
 const settingsRoutes = require('./routes/settingsRoutes');
+const backupRoutes = require('./routes/backupRoutes');
 const serviceDetailRoutes = require('./routes/serviceDetailRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const botRoutes = require('./routes/botRoutes');
@@ -50,6 +51,7 @@ app.use('/api/invoices', protect, invoiceRoutes);
 app.use('/api/appointments', protect, appointmentRoutes);
 app.use('/api/reports', ownerOnly, reportRoutes);
 app.use('/api/settings', ownerOnly, settingsRoutes);
+app.use('/api/backups', ownerOnly, backupRoutes);
 app.use('/api/service-details', protect, serviceDetailRoutes);
 app.use('/api/payments', protect, paymentRoutes);
 

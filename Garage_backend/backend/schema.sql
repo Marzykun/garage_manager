@@ -144,6 +144,7 @@ CREATE TABLE invoices (
   total_amount    NUMERIC(10,2) DEFAULT 0,
   payment_method  payment_method,
   payment_status  payment_status DEFAULT 'pending',
+  invoice_no      SERIAL,
   created_at      TIMESTAMPTZ DEFAULT now()
 );
 
@@ -173,6 +174,9 @@ CREATE TABLE garage_settings (
   close_time   TIME DEFAULT '20:00',
   working_days TEXT DEFAULT 'Mon-Sat',
   gst_percent  NUMERIC(5,2) DEFAULT 18,
+  address      TEXT,
+  phone        TEXT,
+  gstin        TEXT,
   created_at   TIMESTAMPTZ DEFAULT now()
 );
 

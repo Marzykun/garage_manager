@@ -109,6 +109,24 @@ chmod +x ~/.termux/boot/start-garage.sh
 The script (`deploy/start-garage.sh`) grabs a wake-lock, starts Postgres, waits
 for it, then starts the backend — writing logs to `~/garage-backend.log`.
 
+## 7b. Backups (shared storage)
+
+```sh
+termux-setup-storage   # tap Allow
+```
+
+The backend makes a compressed `pg_dump` (`-Fc`) every 30 days and keeps the
+newest 12 (`BACKUP_INTERVAL_DAYS` / `BACKUP_KEEP` in `.env` to change). With
+storage permission they go to `/storage/emulated/0/GarageManager/backups`
+(survives a Termux uninstall); without it, `~/garage-backups`. The owner can
+back up now, share, and restore from **Settings → Data Backup** in the app.
+
+Manual restore (e.g. on a replacement phone after the normal setup above):
+
+```sh
+pg_restore --clean --if-exists --no-owner -d garage_db /path/to/garage-backup-XXXX.dump
+```
+
 ## 8. Stop Android from killing it (important on a real phone)
 
 In Android **Settings**:

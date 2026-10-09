@@ -128,6 +128,21 @@ const getInvoiceById = async (req, res, next) => {
   }
 };
 
+// GET /api/invoices/:id/print — invoice + garage header + itemised lines
+const getInvoicePrintData = async (req, res, next) => {
+  try {
+    const data = await invoiceModel.getInvoicePrintData(req.params.id);
+
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Invoice not found' });
+    }
+
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // GET /api/invoices/job/:job_card_id
 const getInvoiceByJob = async (req, res, next) => {
   try {
@@ -212,6 +227,7 @@ module.exports = {
   getAllInvoices,
   getInvoiceById,
   getInvoiceByJob,
+  getInvoicePrintData,
   markAsPaid,
   sendInvoiceWhatsApp,
 };

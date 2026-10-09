@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:garage_manager/services/api_service.dart';
 import 'package:garage_manager/screens/tyre_stock_screen.dart';
 import 'package:garage_manager/screens/inventory_screen.dart';
+import 'package:garage_manager/screens/backup_section.dart';
 
 const _colorPrimary   = Color(0xFF2D3A4A);
 const _colorHeading   = Color(0xFF1A2332);
@@ -28,6 +29,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _closeCtrl       = TextEditingController();
   final _workingDaysCtrl = TextEditingController();
   final _gstCtrl         = TextEditingController();
+  final _addressCtrl     = TextEditingController();
+  final _phoneCtrl       = TextEditingController();
+  final _gstinCtrl       = TextEditingController();
 
   // Mechanic password
   final _mechNewCtrl     = TextEditingController();
@@ -50,6 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _nameCtrl.dispose(); _openCtrl.dispose(); _closeCtrl.dispose();
     _workingDaysCtrl.dispose(); _gstCtrl.dispose();
+    _addressCtrl.dispose(); _phoneCtrl.dispose(); _gstinCtrl.dispose();
     _mechNewCtrl.dispose(); _mechConfirmCtrl.dispose();
     _ownerUserCtrl.dispose(); _ownerNewCtrl.dispose(); _ownerConfirmCtrl.dispose();
     super.dispose();
@@ -65,6 +70,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _closeCtrl.text       = data['close_time']   ?? '20:00';
       _workingDaysCtrl.text = data['working_days'] ?? 'Mon-Sat';
       _gstCtrl.text         = (data['gst_percent'] ?? 18).toString();
+      _addressCtrl.text     = data['address'] ?? '';
+      _phoneCtrl.text       = data['phone']   ?? '';
+      _gstinCtrl.text       = data['gstin']   ?? '';
     } catch (e) {
       _error = e is ApiException ? e.toString() : 'Failed to load settings.';
     } finally {
@@ -85,6 +93,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         closeTime:   _closeCtrl.text.trim(),
         workingDays: _workingDaysCtrl.text.trim(),
         gstPercent:  gst,
+        address:     _addressCtrl.text.trim(),
+        phone:       _phoneCtrl.text.trim(),
+        gstin:       _gstinCtrl.text.trim().toUpperCase(),
       );
       _snack('Garage info saved.');
     } catch (e) {
@@ -151,6 +162,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildMechanicPasswordSection(),
                   const SizedBox(height: 20),
                   _buildOwnerCredentialsSection(),
+                  const SizedBox(height: 20),
+                  BackupSection(apiService: widget.apiService),
                   const SizedBox(height: 40),
                 ],
               );
@@ -195,6 +208,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       title: 'Garage Info',
       children: [
         _Field(ctrl: _nameCtrl, label: 'Garage Name'),
+        const SizedBox(height: 12),
+        _Field(ctrl: _addressCtrl, label: 'Address', hint: 'Printed on invoices',
+            maxLines: 3),
+        const SizedBox(height: 12),
+        _Field(ctrl: _phoneCtrl, label: 'Phone', hint: 'Printed on invoices',
+            type: TextInputType.phone),
+        const SizedBox(height: 12),
+        _Field(ctrl: _gstinCtrl, label: 'GSTIN (optional)',
+            hint: 'If set, invoices print as TAX INVOICE',
+            capitalization: TextCapitalization.characters),
         const SizedBox(height: 12),
         Row(children: [
           Expanded(child: _Field(ctrl: _openCtrl,  label: 'Open Time',  hint: '09:00')),
@@ -281,17 +304,29 @@ class _Section extends StatelessWidget {
 }
 
 class _Field extends StatelessWidget {
-  const _Field({required this.ctrl, required this.label, this.hint, this.type = TextInputType.text});
+  const _Field({
+    required this.ctrl,
+    required this.label,
+    this.hint,
+    this.type = TextInputType.text,
+    this.maxLines = 1,
+    this.capitalization = TextCapitalization.none,
+  });
   final TextEditingController ctrl;
   final String label;
   final String? hint;
   final TextInputType type;
+  final int maxLines;
+  final TextCapitalization capitalization;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: ctrl,
-      keyboardType: type,
+      keyboardType: maxLines > 1 ? TextInputType.multiline : type,
+      maxLines: maxLines,
+      minLines: 1,
+      textCapitalization: capitalization,
       style: const TextStyle(fontSize: 14, color: _colorHeading),
       decoration: InputDecoration(
         labelText: label,

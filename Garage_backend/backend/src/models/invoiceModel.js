@@ -96,6 +96,61 @@ const markAsPaid = async (id, payment_method) => {
   return result.rows[0];
 };
 
+// Everything needed to render a printable invoice: the invoice with customer,
+// vehicle and job details, the garage's own header details, and the itemised
+// tyres/parts logged on the job.
+const getInvoicePrintData = async (id) => {
+  const invResult = await pool.query(
+    `SELECT
+      i.*,
+      c.name           AS customer_name,
+      c.phone          AS customer_phone,
+      v.vehicle_number,
+      v.brand,
+      v.model,
+      v.km_run,
+      j.service_type,
+      j.notes          AS job_notes,
+      j.created_at     AS job_created_at,
+      j.completed_at   AS job_completed_at
+     FROM invoices i
+     JOIN job_cards j ON j.id = i.job_card_id
+     JOIN customers c ON c.id = j.customer_id
+     JOIN vehicles  v ON v.id = j.vehicle_id
+     WHERE i.id = $1`,
+    [id]
+  );
+  const invoice = invResult.rows[0];
+  if (!invoice) return null;
+
+  const [garageResult, tyreResult, partsResult] = await Promise.all([
+    pool.query(
+      `SELECT garage_name, address, phone, gstin FROM garage_settings LIMIT 1`
+    ),
+    pool.query(
+      `SELECT t.brand, t.model, t.size, t.price, tcd.quantity
+       FROM tyre_change_details tcd
+       JOIN tyre_stock t ON t.id = tcd.tyre_id
+       WHERE tcd.job_card_id = $1
+       ORDER BY tcd.created_at ASC`,
+      [invoice.job_card_id]
+    ),
+    pool.query(
+      `SELECT parts_used FROM service_details
+       WHERE job_card_id = $1 AND parts_used IS NOT NULL AND parts_used <> ''
+       ORDER BY created_at ASC`,
+      [invoice.job_card_id]
+    ),
+  ]);
+
+  return {
+    invoice,
+    garage: garageResult.rows[0] || {},
+    tyres: tyreResult.rows,
+    parts_used: partsResult.rows.map((r) => r.parts_used),
+  };
+};
+
 const getAllInvoices = async () => {
   const result = await pool.query(
     `SELECT 
@@ -118,6 +173,7 @@ module.exports = {
   updateInvoice,
   getInvoiceByJobId,
   getInvoiceById,
+  getInvoicePrintData,
   markAsPaid,
   getAllInvoices,
 };

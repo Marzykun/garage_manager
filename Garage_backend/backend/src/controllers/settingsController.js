@@ -24,6 +24,10 @@ const updateSettings = async (req, res, next) => {
     const close_time   = req.body.close_time;
     const working_days = req.body.working_days;
     const gst_percent  = req.body.gst_percent;
+    // Printed in the invoice header — optional, blank clears them
+    const address      = req.body.address?.trim() || null;
+    const phone        = req.body.phone?.trim()   || null;
+    const gstin        = req.body.gstin?.trim().toUpperCase() || null;
 
     if (!garage_name) {
       return res.status(400).json({
@@ -32,12 +36,22 @@ const updateSettings = async (req, res, next) => {
       });
     }
 
+    if (gstin && !/^[0-9A-Z]{15}$/.test(gstin)) {
+      return res.status(400).json({
+        success: false,
+        message: 'GSTIN must be 15 letters/digits (e.g. 29ABCDE1234F1Z5)',
+      });
+    }
+
     const settings = await settingsModel.updateGarageSettings(
       garage_name,
       open_time    || '09:00',
       close_time   || '20:00',
       working_days || 'Mon-Sat',
-      gst_percent  || 18
+      gst_percent  || 18,
+      address,
+      phone,
+      gstin
     );
 
     res.status(200).json({

@@ -304,6 +304,14 @@ class ApiService {
     return _decodeResponse(response);
   }
 
+  /// Invoice + garage header details + itemised tyres/parts, for printing.
+  Future<Map<String, dynamic>> getInvoicePrintData(String invoiceId) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/invoices/$invoiceId/print');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return (decoded as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+  }
+
   Future<dynamic> updateInvoice(
     String invoiceId, {
     double labourCharge = 0,
@@ -509,6 +517,9 @@ class ApiService {
     required String closeTime,
     required String workingDays,
     required double gstPercent,
+    String? address,
+    String? phone,
+    String? gstin,
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/settings');
     final response = await http.put(
@@ -520,6 +531,9 @@ class ApiService {
         'close_time':   closeTime,
         'working_days': workingDays,
         'gst_percent':  gstPercent,
+        'address':      address,
+        'phone':        phone,
+        'gstin':        gstin,
       }),
     );
     return _decodeResponse(response);
@@ -556,6 +570,39 @@ class ApiService {
         'confirm_password': confirmPassword,
       }),
     );
+    return _decodeResponse(response);
+  }
+
+  // ── Backups (owner only) ──────────────────────────────────────────────────
+
+  /// Schedule info (`interval_days`, `last_backup`, `next_due`, `shared`, …)
+  /// plus `backups`: [{name, size, created_at, kind}], newest first.
+  Future<Map<String, dynamic>> getBackups() async {
+    final uri = Uri.parse('$kApiBaseUrl/api/backups');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return (decoded as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+  }
+
+  Future<dynamic> createBackup() async {
+    final uri = Uri.parse('$kApiBaseUrl/api/backups');
+    final response = await http.post(uri, headers: _createHeaders());
+    return _decodeResponse(response);
+  }
+
+  /// Raw bytes of a backup file, for sharing it off the phone.
+  Future<List<int>> downloadBackup(String name) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/backups/${Uri.encodeComponent(name)}/download');
+    final response = await http.get(uri, headers: _createHeaders());
+    if (response.statusCode != 200) {
+      throw ApiException(response.statusCode, response.body, uri.toString());
+    }
+    return response.bodyBytes;
+  }
+
+  Future<dynamic> restoreBackup(String name) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/backups/${Uri.encodeComponent(name)}/restore');
+    final response = await http.post(uri, headers: _createHeaders());
     return _decodeResponse(response);
   }
 
