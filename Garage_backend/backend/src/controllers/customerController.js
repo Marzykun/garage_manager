@@ -31,19 +31,29 @@ const lookupCustomer = async (req, res) => {
   }
 };
 
-// GET /api/customers/search?q=
+const SERVICE_TYPES = [
+  'wheel_alignment', 'wheel_balancing', 'tyre_change',
+  'water_wash', 'full_service', 'car_wash', 'other',
+];
+
+// GET /api/customers/search?q=&service=&vehicle_type=&limit=&offset=
+// All filters optional — with none, lists every customer (latest visit first).
 const searchCustomers = async (req, res, next) => {
   try {
-    const { q } = req.query;
+    const q           = (req.query.q || '').trim();
+    const service     = (req.query.service || '').trim();
+    const vehicleType = (req.query.vehicle_type || '').trim();
+    const limit       = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
+    const offset      = Math.max(parseInt(req.query.offset, 10) || 0, 0);
 
-    if (!q || q.trim().length < 1) {
+    if (service && !SERVICE_TYPES.includes(service)) {
       return res.status(400).json({
         success: false,
-        message: 'Search query must be at least 1 character',
+        message: `service must be one of: ${SERVICE_TYPES.join(', ')}`,
       });
     }
 
-    const customers = await customerModel.searchCustomers(q.trim());
+    const customers = await customerModel.searchCustomers({ q, service, vehicleType, limit, offset });
 
     res.status(200).json({
       success: true,

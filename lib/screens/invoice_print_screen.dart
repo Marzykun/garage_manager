@@ -105,7 +105,7 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _share,
                         icon: const Icon(Icons.share_rounded, size: 18),
-                        label: const Text('Share PDF'),
+                        label: const Text('Share'),
                       ),
                     ),
                   ),

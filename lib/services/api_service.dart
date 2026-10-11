@@ -117,8 +117,11 @@ class ApiService {
     String phone,
     List<String> services,
     String notes,
-    String source,
-  ) async {
+    String source, {
+    String? vehicleType,
+    String? vehicleBrand,
+    String? vehicleModel,
+  }) async {
     // Step 1 — look up customer by phone
     final lookupUri = Uri.parse('$kApiBaseUrl/api/customers/lookup/${Uri.encodeComponent(phone)}');
     final lookupResp = await http.get(lookupUri, headers: _createHeaders());
@@ -143,7 +146,13 @@ class ApiService {
     final vehicleResp = await http.post(
       vehicleUri,
       headers: _createHeaders(),
-      body: jsonEncode({'customer_id': customerId, 'vehicle_number': vehicleReg}),
+      body: jsonEncode({
+        'customer_id': customerId,
+        'vehicle_number': vehicleReg,
+        if (vehicleType  != null && vehicleType.isNotEmpty)  'vehicle_type': vehicleType,
+        if (vehicleBrand != null && vehicleBrand.isNotEmpty) 'brand':        vehicleBrand,
+        if (vehicleModel != null && vehicleModel.isNotEmpty) 'model':        vehicleModel,
+      }),
     );
 
     dynamic vehicleId;
@@ -153,6 +162,25 @@ class ApiService {
       final byNumResp = await http.get(byNumUri, headers: _createHeaders());
       final byNumData = await _decodeResponse(byNumResp);
       vehicleId = byNumData['data']?['id'];
+
+      // Fill in type / make / model on the existing vehicle if given now
+      final hasDetails = [vehicleType, vehicleBrand, vehicleModel]
+          .any((v) => v != null && v.isNotEmpty);
+      if (vehicleId != null && hasDetails) {
+        try {
+          await http.patch(
+            Uri.parse('$kApiBaseUrl/api/vehicles/$vehicleId'),
+            headers: _createHeaders(),
+            body: jsonEncode({
+              'vehicle_type': vehicleType,
+              'brand':        vehicleBrand,
+              'model':        vehicleModel,
+            }),
+          );
+        } catch (_) {
+          // Not critical — the job still gets created
+        }
+      }
     } else {
       final vehicleData = await _decodeResponse(vehicleResp);
       vehicleId = vehicleData['data']?['id'];
@@ -211,6 +239,37 @@ class ApiService {
     return _decodeResponse(response);
   }
 
+  /// Fix a job's details after creation. Name/phone/plate changes apply to the
+  /// customer and vehicle records themselves.
+  Future<dynamic> updateJobDetails(
+    String jobId, {
+    required String customerName,
+    required String customerPhone,
+    required String vehicleNumber,
+    String? vehicleType,
+    String? vehicleBrand,
+    String? vehicleModel,
+    required String service,
+    required String notes,
+  }) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/jobs/$jobId/details');
+    final response = await http.put(
+      uri,
+      headers: _createHeaders(),
+      body: jsonEncode({
+        'customer_name':  customerName,
+        'customer_phone': customerPhone,
+        'vehicle_number': vehicleNumber,
+        'vehicle_type':   vehicleType,
+        'brand':          vehicleBrand,
+        'model':          vehicleModel,
+        'service_type':   _toServiceTypeEnum(service),
+        'notes':          notes,
+      }),
+    );
+    return _decodeResponse(response);
+  }
+
   Future<dynamic> cancelJob(String jobId) async {
     final uri = Uri.parse('$kApiBaseUrl/api/jobs/$jobId/cancel');
     final response = await http.patch(uri, headers: _createHeaders());
@@ -241,37 +300,36 @@ class ApiService {
     return _decodeResponse(response);
   }
 
-  Future<dynamic> searchCustomers(String query) async {
-    final uri = Uri.parse(
-      '$kApiBaseUrl/api/customers/search?q=${Uri.encodeComponent(query)}',
-    );
+  /// Customer list. All filters optional — with none, lists everyone, most
+  /// recent visit first. Each row has `vehicles`, `visit_count`, `last_visit`,
+  /// `services` and `total_spent`.
+  Future<List<dynamic>> searchCustomers({
+    String? query,
+    String? service,
+    String? vehicleType,
+    int limit = 30,
+    int offset = 0,
+  }) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/customers/search').replace(queryParameters: {
+      if (query != null && query.isNotEmpty) 'q': query,
+      if (service != null) 'service': service,
+      if (vehicleType != null) 'vehicle_type': vehicleType,
+      'limit': '$limit',
+      'offset': '$offset',
+    });
     final response = await http.get(uri, headers: _createHeaders());
     final decoded = await _decodeResponse(response);
-    if (decoded is Map<String, dynamic>) {
-      return decoded['data'] ?? [];
-    }
-    return decoded;
+    if (decoded is Map<String, dynamic>) return (decoded['data'] as List?) ?? [];
+    return (decoded as List?) ?? [];
   }
 
-  Future<dynamic> getCustomerHistory(String phone) async {
-    // Step 1 — look up customer by phone to get their UUID
-    final lookupUri = Uri.parse(
-      '$kApiBaseUrl/api/customers/lookup/${Uri.encodeComponent(phone)}',
-    );
-    final lookupResp = await http.get(lookupUri, headers: _createHeaders());
-    final lookupData = await _decodeResponse(lookupResp);
-    final customerId = lookupData['data']?['id']?.toString();
-
-    if (customerId == null) return [];
-
-    // Step 2 — fetch job history by customer UUID
-    final historyUri = Uri.parse('$kApiBaseUrl/api/customers/$customerId/jobs');
-    final historyResp = await http.get(historyUri, headers: _createHeaders());
-    final historyData = await _decodeResponse(historyResp);
-    if (historyData is Map<String, dynamic>) {
-      return historyData['data'] ?? [];
-    }
-    return historyData;
+  /// All visits for a customer (newest first), with vehicle and invoice info.
+  Future<List<dynamic>> getCustomerJobs(String customerId) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/customers/$customerId/jobs');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    if (decoded is Map<String, dynamic>) return (decoded['data'] as List?) ?? [];
+    return (decoded as List?) ?? [];
   }
 
   /// [labourCharge] and [partsCharge] are entered by mechanic.

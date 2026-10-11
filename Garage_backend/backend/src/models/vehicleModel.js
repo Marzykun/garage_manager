@@ -39,8 +39,23 @@ const updateVehicleKm = async (id, km_run) => {
   return result.rows[0];
 };
 
+// Fill in / correct type, make and model. Fields not sent are left as-is.
+const updateVehicleDetails = async (id, vehicle_type, brand, model) => {
+  const result = await pool.query(
+    `UPDATE vehicles
+     SET vehicle_type = COALESCE($1, vehicle_type),
+         brand        = COALESCE($2, brand),
+         model        = COALESCE($3, model)
+     WHERE id = $4
+     RETURNING *`,
+    [vehicle_type, brand, model, id]
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   addVehicle,
+  updateVehicleDetails,
   getVehiclesByCustomer,
   updateVehicleKm,
   getVehicleByNumber,

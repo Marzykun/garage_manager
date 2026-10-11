@@ -32,7 +32,7 @@ const addVehicle = async (req, res, next) => {
     const vehicle = await vehicleModel.addVehicle(
       customer_id,
       vehicle_number,
-      vehicle_type || null,
+      vehicle_type ? String(vehicle_type).trim().toLowerCase() : null,
       brand || null,
       model || null,
       year || null,
@@ -123,8 +123,30 @@ const updateVehicleKm = async (req, res, next) => {
   }
 };
 
+// PATCH /api/vehicles/:id — update vehicle_type / brand / model
+const updateVehicleDetails = async (req, res, next) => {
+  try {
+    const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const vehicle = await vehicleModel.updateVehicleDetails(
+      req.params.id,
+      clean(req.body.vehicle_type)?.toLowerCase() ?? null,
+      clean(req.body.brand),
+      clean(req.body.model)
+    );
+
+    if (!vehicle) {
+      return res.status(404).json({ success: false, message: 'Vehicle not found' });
+    }
+
+    res.status(200).json({ success: true, message: 'Vehicle updated', data: vehicle });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   addVehicle,
+  updateVehicleDetails,
   getVehiclesByCustomer,
   updateVehicleKm,
   getVehicleByNumber,

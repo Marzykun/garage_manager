@@ -366,6 +366,24 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
     }
   }
 
+  Future<void> _editJob(dynamic job) async {
+    final id = jobId(job);
+    if (id == null || id.startsWith('local-') || job is! Map) {
+      _showSnack('This job is not saved yet — remove it and add it again.');
+      return;
+    }
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => NewJobCardScreen(
+        apiService: widget.apiService,
+        job: job.cast<String, dynamic>(),
+      ),
+    ));
+    if (saved == true) {
+      _showSnack('Job updated.');
+      await _loadJobs();
+    }
+  }
+
   Future<void> _cancelJob(dynamic job) async {
     final id = jobId(job);
     if (id == null || id.startsWith('local-')) {
@@ -476,6 +494,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                         job: _pendingJobs[i],
                         isAccepting: jobId(_pendingJobs[i]) != null && _updatingJobId == jobId(_pendingJobs[i]),
                         onAccept: () => _acceptNewJob(_pendingJobs[i]),
+                        onEdit: () => _editJob(_pendingJobs[i]),
                         onCancel: () => _cancelJob(_pendingJobs[i]),
                       ),
                     ),
@@ -522,6 +541,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                       job: _filteredJobs[i],
                       isUpdating: jobId(_filteredJobs[i]) != null && _updatingJobId == jobId(_filteredJobs[i]),
                       onUpdateStatus: () => _updateJobStatus(_filteredJobs[i]),
+                      onEdit: () => _editJob(_filteredJobs[i]),
                       onCancel: () => _cancelJob(_filteredJobs[i]),
                       onBilling: () => _openBilling(_filteredJobs[i]),
                       onLogDetails: () => _openServiceDetail(_filteredJobs[i]),
@@ -601,10 +621,8 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
   // ─── Owner-only tab stubs ─────────────────────────────────────────────────
 
   Widget _buildCustomersContent() {
-    // CustomerHistoryScreen is a full Scaffold — embed its body content inline
-    // by re-using the same widget but wrapped, or just push as a page.
-    // For nav-tab experience we inline a lightweight search entry point here.
-    return _CustomerTabBody(apiService: widget.apiService);
+    // The customer list itself, without its own app bar (the tab has one)
+    return CustomerHistoryScreen(apiService: widget.apiService, embedded: true);
   }
 
   Widget _buildReportsContent() {
@@ -742,12 +760,14 @@ class _PendingCard extends StatelessWidget {
     required this.job,
     required this.isAccepting,
     required this.onAccept,
+    required this.onEdit,
     required this.onCancel,
   });
 
   final dynamic job;
   final bool isAccepting;
   final VoidCallback onAccept;
+  final VoidCallback onEdit;
   final VoidCallback onCancel;
 
   @override
@@ -788,8 +808,12 @@ class _PendingCard extends StatelessWidget {
                   child: PopupMenuButton<String>(
                     icon: const Icon(Icons.more_horiz, size: 18, color: _colorMuted),
                     padding: EdgeInsets.zero,
-                    onSelected: (v) { if (v == 'cancel') onCancel(); },
+                    onSelected: (v) {
+                      if (v == 'edit')   onEdit();
+                      if (v == 'cancel') onCancel();
+                    },
                     itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit',   child: Text('Edit Details')),
                       PopupMenuItem(value: 'cancel', child: Text('Remove', style: TextStyle(color: Colors.red))),
                     ],
                   ),
@@ -1021,6 +1045,7 @@ class _JobCard extends StatelessWidget {
     required this.job,
     required this.isUpdating,
     required this.onUpdateStatus,
+    required this.onEdit,
     required this.onCancel,
     required this.onBilling,
     required this.onLogDetails,
@@ -1029,6 +1054,7 @@ class _JobCard extends StatelessWidget {
   final dynamic job;
   final bool isUpdating;
   final VoidCallback onUpdateStatus;
+  final VoidCallback onEdit;
   final VoidCallback onCancel;
   final VoidCallback onBilling;
   final VoidCallback onLogDetails;
@@ -1103,11 +1129,13 @@ class _JobCard extends StatelessWidget {
                               icon: const Icon(Icons.more_horiz, size: 18, color: _colorMuted),
                               padding: EdgeInsets.zero,
                               onSelected: (v) {
+                                if (v == 'edit')       onEdit();
                                 if (v == 'cancel')     onCancel();
                                 if (v == 'billing')    onBilling();
                                 if (v == 'details')    onLogDetails();
                               },
                               itemBuilder: (_) => const [
+                                PopupMenuItem(value: 'edit',    child: Text('Edit Details')),
                                 PopupMenuItem(value: 'details', child: Text('Log Details')),
                                 PopupMenuItem(value: 'billing', child: Text('Generate Invoice')),
                                 PopupMenuItem(value: 'cancel',  child: Text('Remove', style: TextStyle(color: Colors.red))),
@@ -1453,42 +1481,6 @@ class _ErrorBanner extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(child: Text(message, style: const TextStyle(fontSize: 13, color: _colorErrorText))),
       ]),
-    );
-  }
-}
-
-
-class _CustomerTabBody extends StatelessWidget {
-  const _CustomerTabBody({required this.apiService});
-  final ApiService apiService;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.people_outline_rounded, size: 52, color: Color(0xFFD0D5DD)),
-            const SizedBox(height: 16),
-            const Text('Customer History', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF1A2332))),
-            const SizedBox(height: 6),
-            const Text('Search customers and view their service history.', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Color(0xFF9AA3B0))),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 50,
-              child: ElevatedButton.icon(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => CustomerHistoryScreen(apiService: apiService),
-                )),
-                icon: const Icon(Icons.search_rounded, size: 18),
-                label: const Text('Search Customers'),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

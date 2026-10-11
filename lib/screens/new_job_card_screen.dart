@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:garage_manager/models/vehicle_types.dart';
 import 'package:garage_manager/services/api_service.dart';
 
 const _colorPrimary = Color(0xFF2D3A4A);
@@ -27,9 +28,12 @@ const _serviceIcons = {
   'Other':            Icons.miscellaneous_services_outlined,
 };
 
+/// Creates a job card, or — when [job] is given — edits that job's details
+/// (customer name/phone, vehicle, service, notes).
 class NewJobCardScreen extends StatefulWidget {
-  const NewJobCardScreen({super.key, required this.apiService});
+  const NewJobCardScreen({super.key, required this.apiService, this.job});
   final ApiService apiService;
+  final Map<String, dynamic>? job;
 
   @override
   State<NewJobCardScreen> createState() => _NewJobCardScreenState();
@@ -41,11 +45,34 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
   final _customerNameCtrl     = TextEditingController();
   final _phoneCtrl            = TextEditingController();
   final _notesCtrl            = TextEditingController();
+  final _brandCtrl            = TextEditingController();
+  final _modelCtrl            = TextEditingController();
+  String? _vehicleType;
 
   String? _selectedService;
   String  _source       = 'Walk-in';
   bool    _isSubmitting = false;
   String? _serviceError;
+
+  bool get _isEdit => widget.job != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final j = widget.job;
+    if (j != null) {
+      _vehicleCtrl.text      = j['vehicle_number']?.toString() ?? '';
+      _customerNameCtrl.text = j['customer_name']?.toString()  ?? '';
+      _phoneCtrl.text        = j['customer_phone']?.toString() ?? '';
+      _notesCtrl.text        = j['notes']?.toString()          ?? '';
+      _brandCtrl.text        = j['brand']?.toString()          ?? '';
+      _modelCtrl.text        = j['model']?.toString()          ?? '';
+      _vehicleType           = vehicleTypeFor(j['vehicle_type']?.toString())?.value;
+      final st = j['service_type']?.toString();
+      _selectedService = st == null ? null : serviceLabel(st);
+      if (!_serviceOptions.contains(_selectedService)) _selectedService = null;
+    }
+  }
 
   @override
   void dispose() {
@@ -53,6 +80,8 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
     _customerNameCtrl.dispose();
     _phoneCtrl.dispose();
     _notesCtrl.dispose();
+    _brandCtrl.dispose();
+    _modelCtrl.dispose();
     super.dispose();
   }
 
@@ -67,6 +96,22 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
     setState(() { _serviceError = null; _isSubmitting = true; });
 
     try {
+      if (_isEdit) {
+        await widget.apiService.updateJobDetails(
+          widget.job!['id'].toString(),
+          customerName:  _customerNameCtrl.text.trim(),
+          customerPhone: _phoneCtrl.text.trim(),
+          vehicleNumber: _vehicleCtrl.text.trim(),
+          vehicleType:   _vehicleType,
+          vehicleBrand:  _brandCtrl.text.trim(),
+          vehicleModel:  _modelCtrl.text.trim(),
+          service:       _selectedService!,
+          notes:         _notesCtrl.text.trim(),
+        );
+        if (!mounted) return;
+        Navigator.of(context).pop(true);
+        return;
+      }
       await widget.apiService.createJob(
         _vehicleCtrl.text.trim(),
         _customerNameCtrl.text.trim(),
@@ -74,6 +119,9 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
         [_selectedService!],
         _notesCtrl.text.trim(),
         _source,
+        vehicleType:  _vehicleType,
+        vehicleBrand: _brandCtrl.text.trim(),
+        vehicleModel: _modelCtrl.text.trim(),
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -92,9 +140,13 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('New Job Card'),
+        title: Text(_isEdit ? 'Edit Job' : 'New Job Card'),
         backgroundColor: _colorPrimary,
         foregroundColor: Colors.white,
+        // The app theme sets a dark title style; override it on this dark bar
+        titleTextStyle: const TextStyle(
+            fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
@@ -110,6 +162,41 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
                     icon: Icons.directions_car_outlined,
                     caps: TextCapitalization.characters,
                     validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+                const SizedBox(height: 14),
+                _label('Vehicle Type'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final t in kVehicleTypes)
+                      ChoiceChip(
+                        avatar: Icon(t.icon, size: 18,
+                            color: _vehicleType == t.value ? Colors.white : _colorSubtext),
+                        label: Text(t.label),
+                        selected: _vehicleType == t.value,
+                        showCheckmark: false,
+                        selectedColor: _colorPrimary,
+                        backgroundColor: const Color(0xFFF0F4F8),
+                        side: BorderSide(color: _vehicleType == t.value ? _colorPrimary : _colorBorder),
+                        labelStyle: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _vehicleType == t.value ? Colors.white : _colorSubtext,
+                        ),
+                        onSelected: (_) => setState(() =>
+                            _vehicleType = _vehicleType == t.value ? null : t.value),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: _field(_brandCtrl, 'Make (e.g. Maruti)',
+                      caps: TextCapitalization.words)),
+                  const SizedBox(width: 10),
+                  Expanded(child: _field(_modelCtrl, 'Model (e.g. Swift)',
+                      caps: TextCapitalization.words)),
+                ]),
               ]),
               const SizedBox(height: 12),
 
@@ -142,7 +229,7 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
               ]),
               const SizedBox(height: 12),
 
-              _card(children: [
+              if (!_isEdit) _card(children: [
                 _label('Source'),
                 const SizedBox(height: 10),
                 Row(children: [
@@ -213,7 +300,7 @@ class _NewJobCardScreenState extends State<NewJobCardScreen> {
                   child: _isSubmitting
                       ? const SizedBox(height: 22, width: 22,
                           child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                      : const Text('Create Job Card',
+                      : Text(_isEdit ? 'Save Changes' : 'Create Job Card',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),

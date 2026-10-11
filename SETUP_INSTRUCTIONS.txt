@@ -142,6 +142,19 @@ open the app. The database and server start by themselves.
 
 Keep the phone plugged in during work hours if possible.
 
+NEW JOB: pick the Vehicle Type (Car / SUV / Bike ...) and fill in the
+make and model if you know them — the Customers screen uses these to
+filter.
+
+MADE A MISTAKE IN A JOB (wrong name, phone, number plate, service)?
+Tap the ... on the job > Edit Details, fix it, Save Changes. No need
+to delete the job. It is corrected everywhere, old invoices included.
+
+FINDING A CUSTOMER (Owner > Customers tab): the list shows everyone,
+latest visit first. Type a name or phone number to search, or tap a
+vehicle type / service to filter. Tap a customer to see their
+vehicles, every visit, amounts billed, and to Call or WhatsApp them.
+
 --------------------------------------------------------------
  IF THE APP SAYS "CONNECTION ERROR"
 --------------------------------------------------------------

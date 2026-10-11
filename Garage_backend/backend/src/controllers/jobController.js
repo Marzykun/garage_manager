@@ -225,7 +225,43 @@ const markReadyForDelivery = async (req, res, next) => {
   }
 };
 
+// PUT /api/jobs/:id/details — fix customer / vehicle / service details
+const SERVICE_TYPES = [
+  'wheel_alignment', 'wheel_balancing', 'tyre_change',
+  'water_wash', 'full_service', 'car_wash', 'other',
+];
+
+const updateJobDetails = async (req, res, next) => {
+  try {
+    const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const d = {
+      customer_name:  text(req.body.customer_name),
+      customer_phone: text(req.body.customer_phone),
+      vehicle_number: text(req.body.vehicle_number)?.toUpperCase() ?? null,
+      vehicle_type:   text(req.body.vehicle_type)?.toLowerCase() ?? null,
+      brand:          text(req.body.brand),
+      model:          text(req.body.model),
+      service_type:   text(req.body.service_type),
+      // notes may be cleared on purpose, so an empty string is kept
+      notes:          typeof req.body.notes === 'string' ? req.body.notes.trim() : undefined,
+    };
+
+    if (d.service_type && !SERVICE_TYPES.includes(d.service_type)) {
+      return res.status(400).json({
+        success: false,
+        message: `service_type must be one of: ${SERVICE_TYPES.join(', ')}`,
+      });
+    }
+
+    const job = await jobModel.updateJobDetails(req.params.id, d);
+    res.status(200).json({ success: true, message: 'Job updated', data: job });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
+  updateJobDetails,
   createJob,
   getAllJobs,
   getJobById,

@@ -1,0 +1,165 @@
+==============================================================
+ GARAGE MANAGER — UPDATE INSTRUCTIONS
+ For a phone that already has Garage Manager set up and working.
+==============================================================
+
+WHAT THIS UPDATE ADDS
+ - "Start Server" button on the login screen (turns the server on
+   without opening Termux)
+ - Print / share a proper invoice (with garage name, address,
+   GSTIN, invoice number, GST breakup)
+ - Automatic data backup every month, plus Back Up Now / Share /
+   Restore in Settings
+ - Customers tab now opens with the full customer list. Search by
+   name or phone number, filter by vehicle type (Car / SUV / Bike /
+   Auto / Commercial) and by service. Tap a customer to see their
+   phone (Call / WhatsApp), vehicles, every visit and amount billed.
+ - New Job Card asks for Vehicle Type and Make / Model (optional)
+ - "Edit Details" on every job (the ... menu) — fix a wrong name,
+   phone, number plate, vehicle or service without deleting the job
+
+WHAT YOU NEED
+ - The client's phone, connected to Wi-Fi (internet is needed for
+   Part 1 only)
+ - About 15 minutes
+ - The garage's address, phone number and GSTIN (if they have one)
+
+Do the parts IN ORDER. In Termux, type each line exactly and press
+Enter after each one. Wait for the $ sign to come back before typing
+the next line.
+
+--------------------------------------------------------------
+ PART 1 — UPDATE THE SERVER  (in Termux)
+--------------------------------------------------------------
+1. Open the Termux app.
+2. Type:
+
+    cd ~/garage_manager
+    git pull
+
+   You should see a list of changed files, ending with something
+   like "30 files changed". That is correct.
+
+   If it says "Already up to date" — fine, continue.
+   If it shows an ERROR or mentions "conflict" — STOP and send us
+   a photo of the screen.
+
+--------------------------------------------------------------
+ PART 2 — ONE-TIME TERMUX SETTINGS  (in Termux)
+--------------------------------------------------------------
+Still in Termux, type these two lines. They let the app's
+"Start Server" button work (safe to do even if done before):
+
+    echo "allow-external-apps=true" >> ~/.termux/termux.properties
+    termux-reload-settings
+
+Then type this one. The phone will ask about access to files /
+storage — tap ALLOW:
+
+    termux-setup-storage
+
+(This lets the monthly backups be saved in the phone's storage, so
+they are safe even if Termux is ever removed.)
+
+--------------------------------------------------------------
+ PART 3 — RESTART THE PHONE
+--------------------------------------------------------------
+Restart the phone and wait about 1 minute after it turns on.
+The server starts by itself and updates the database automatically.
+(Nothing is deleted — all old jobs, customers and invoices stay.)
+
+--------------------------------------------------------------
+ PART 4 — INSTALL THE NEW APP
+--------------------------------------------------------------
+1. On the phone, open this link in the browser:
+
+    https://github.com/Marzykun/garage_manager/releases/latest
+
+2. Under "Assets", tap  app-release.apk  to download it.
+   (Use ONLY this link — do not use any older app file you may
+   have saved before.)
+3. Open the downloaded file and tap Install / Update.
+
+   If it says "App not installed" or "conflicts with an existing
+   package":
+     - Settings > Apps > Garage Manager > Uninstall
+     - Then open app-release.apk again and Install.
+     - This is safe: the garage data is kept in Termux, not in the
+       app. You only need to log in again.
+
+--------------------------------------------------------------
+ PART 5 — FILL IN THE GARAGE DETAILS  (in the app)
+--------------------------------------------------------------
+1. Open Garage Manager. Under the title it should say a green
+   "Server online". (If red, tap "Start Server" and wait 10 sec.)
+2. Log in as OWNER.
+3. Go to Settings (bottom right).
+4. In "Garage Info" fill in:
+     - Garage Name
+     - Address
+     - Phone
+     - GSTIN  (only if the garage is GST registered — otherwise
+               leave it empty)
+5. Tap "Save Garage Info".
+
+These details are printed at the top of every invoice.
+
+--------------------------------------------------------------
+ PART 6 — CHECK EVERYTHING WORKS
+--------------------------------------------------------------
+BACKUP:
+ 1. Still in Settings, scroll down to "Data Backup".
+ 2. Tap "Back Up Now". A new backup should appear in the list.
+ 3. It should say  "Saved in phone storage → GarageManager/backups"
+    in green. If it shows an orange warning about "inside Termux
+    only", redo the  termux-setup-storage  line from Part 2 and
+    make sure you tap Allow.
+
+INVOICE:
+ 1. Open any job that already has an invoice (or create one).
+ 2. Tap "View & Print Invoice".
+ 3. Check the garage name, address, GSTIN and amounts look right.
+ 4. "Print Invoice" prints it (or choose "Save as PDF").
+    "Share PDF" sends it on WhatsApp.
+
+CUSTOMERS + EDIT:
+ 1. Add a test job with New Job (pick a Vehicle Type).
+ 2. On that job tap ... > Edit Details, change the name, tap Save
+    Changes. The job card should show the new name.
+ 3. Owner: open the Customers tab — the customer list appears
+    straight away. Try typing part of a phone number, and tapping
+    a vehicle type. Tap a customer to see their details.
+ 4. Remove the test job afterwards (... > Remove).
+
+START SERVER BUTTON (optional test):
+ - Only shows when the server is off. If you ever see a red
+   "Server not responding" on the login screen, tap "Start Server"
+   and wait about 10 seconds for it to turn green.
+ - The first time, Android may ask permission — tap Allow.
+
+--------------------------------------------------------------
+ TELL THE OWNER
+--------------------------------------------------------------
+ - Data is backed up automatically every month.
+ - Once a month: Settings > Data Backup > tap Share on the newest
+   backup and send it to their own WhatsApp or Google Drive. That
+   copy is what saves their data if the phone is lost or broken.
+ - Before any big change, tap "Back Up Now".
+ - When adding a job, pick the Vehicle Type — the Customers screen
+   can only filter by type for vehicles where it was picked.
+ - A typo in a name / phone / number plate: ... > Edit Details on
+   the job. It fixes it everywhere, old invoices included.
+
+--------------------------------------------------------------
+ IF SOMETHING GOES WRONG
+--------------------------------------------------------------
+ - App says server not responding even after "Start Server":
+   restart the phone, wait 1 minute, try again.
+ - Still not working: open Termux, type
+
+    cat ~/garage-backend.log
+
+   and send us a photo of the screen.
+ - "Start Server" gives a Termux error: check Part 2 was typed
+   exactly, then restart the phone.
+==============================================================
