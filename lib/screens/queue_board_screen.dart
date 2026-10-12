@@ -11,6 +11,7 @@ import 'package:garage_manager/screens/reports_screen.dart';
 import 'package:garage_manager/screens/settings_screen.dart';
 import 'package:garage_manager/screens/new_job_card_screen.dart';
 import 'package:garage_manager/screens/tyre_stock_screen.dart';
+import 'package:garage_manager/screens/tyre_compare_screen.dart';
 import 'package:garage_manager/screens/inventory_screen.dart';
 
 // Pre-computed opacity variants — avoids Color allocation on every build
@@ -241,6 +242,22 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
   Future<void> _updateJobStatus(dynamic job) async {
     final id = jobId(job);
     if (id == null) { _showSnack('Missing job ID.'); return; }
+    final status = jobStatusValue(job).toLowerCase();
+
+    // Completed (or any final) jobs: tapping the badge does nothing. Before
+    // this, it fell through to "cancel" and the job vanished from the board.
+    if (!status.contains('pending') && !status.contains('progress')) return;
+    if (_updatingJobId != null) return; // ignore double-taps while saving
+
+    if (status.contains('progress')) {
+      final ok = await _confirm(
+        title: 'Mark job as completed?',
+        message: '${jobVehicle(job)} — ${jobCustomer(job)}',
+        action: 'Complete',
+      );
+      if (!ok) return;
+    }
+
     setState(() => _updatingJobId = id);
     try {
       await widget.apiService.updateJobStatus(id, currentStatus: jobStatusValue(job));
@@ -384,7 +401,39 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
     }
   }
 
+  Future<bool> _confirm({
+    required String title,
+    required String message,
+    required String action,
+    bool destructive = false,
+  }) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: destructive ? TextButton.styleFrom(foregroundColor: _colorErrorText) : null,
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
   Future<void> _cancelJob(dynamic job) async {
+    final ok = await _confirm(
+      title: 'Remove this job?',
+      message: '${jobVehicle(job)} — ${jobCustomer(job)}\n\n'
+          'It will be cancelled and taken off the board.',
+      action: 'Remove',
+      destructive: true,
+    );
+    if (!ok) return;
     final id = jobId(job);
     if (id == null || id.startsWith('local-')) {
       // Local-only job (not yet saved to server) — just remove from UI
@@ -597,6 +646,24 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
             const SizedBox(height: 20),
             if (_isOwner) ...[
               _InventoryShortcut(apiService: widget.apiService),
+              const SizedBox(height: 20),
+            ] else ...[
+              // Mechanics can't edit stock, but can look up what's available
+              // when a customer asks for a size.
+              Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.all(Radius.circular(14)),
+                  border: Border.fromBorderSide(BorderSide(color: _colorBorder)),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: _InventoryTile(
+                  icon: Icons.compare_arrows_rounded,
+                  label: 'Compare Tyres by Size',
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => TyreCompareScreen(apiService: widget.apiService))),
+                ),
+              ),
               const SizedBox(height: 20),
             ],
             _ActivitySection(
@@ -1103,8 +1170,9 @@ class _JobCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Row(
                         children: [
-                          GestureDetector(
-                            onTap: isUpdating ? null : onUpdateStatus,
+                          // Status is display-only. Tapping it used to advance the
+                          // status and, on a completed job, cancel it (it vanished).
+                          IgnorePointer(
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                               decoration: BoxDecoration(color: sBgColor, borderRadius: const BorderRadius.all(Radius.circular(8))),
@@ -1130,15 +1198,18 @@ class _JobCard extends StatelessWidget {
                               padding: EdgeInsets.zero,
                               onSelected: (v) {
                                 if (v == 'edit')       onEdit();
+                                if (v == 'complete')   onUpdateStatus();
                                 if (v == 'cancel')     onCancel();
                                 if (v == 'billing')    onBilling();
                                 if (v == 'details')    onLogDetails();
                               },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(value: 'edit',    child: Text('Edit Details')),
-                                PopupMenuItem(value: 'details', child: Text('Log Details')),
-                                PopupMenuItem(value: 'billing', child: Text('Generate Invoice')),
-                                PopupMenuItem(value: 'cancel',  child: Text('Remove', style: TextStyle(color: Colors.red))),
+                              itemBuilder: (_) => [
+                                if (status.toLowerCase().contains('progress'))
+                                  const PopupMenuItem(value: 'complete', child: Text('Mark as Completed')),
+                                const PopupMenuItem(value: 'edit',    child: Text('Edit Details')),
+                                const PopupMenuItem(value: 'details', child: Text('Log Details')),
+                                const PopupMenuItem(value: 'billing', child: Text('Generate Invoice')),
+                                const PopupMenuItem(value: 'cancel',  child: Text('Remove', style: TextStyle(color: Colors.red))),
                               ],
                             ),
                           ),
@@ -1343,6 +1414,12 @@ class _InventoryShortcut extends StatelessWidget {
             label: 'Tyre Stock',
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => TyreStockScreen(apiService: apiService))),
+          ),
+          _InventoryTile(
+            icon: Icons.compare_arrows_rounded,
+            label: 'Compare Tyres by Size',
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => TyreCompareScreen(apiService: apiService))),
           ),
           _InventoryTile(
             icon: Icons.inventory_2_outlined,

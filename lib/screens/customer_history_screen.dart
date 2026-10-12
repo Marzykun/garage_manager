@@ -70,6 +70,7 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
 
   String? _vehicleType;
   String? _service;
+  String _sort = 'name'; // 'name' (A–Z) or 'recent'
 
   final List<Map<String, dynamic>> _customers = [];
   bool _loading = false;
@@ -120,6 +121,7 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
         query: _searchCtrl.text.trim(),
         service: _service,
         vehicleType: _vehicleType,
+        sort: _sort,
         limit: _pageSize,
         offset: _customers.length,
       );
@@ -188,6 +190,33 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
                   selected: _service,
                   onSelect: (v) { setState(() => _service = v); _reload(); },
                 ),
+                const SizedBox(height: 6),
+                Row(children: [
+                  const SizedBox(
+                    width: 58,
+                    child: Text('Sort', style: TextStyle(fontSize: 12, color: _colorSubtext)),
+                  ),
+                  for (final o in const [('name', 'A – Z'), ('recent', 'Recent visit')])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(o.$2),
+                        selected: _sort == o.$1,
+                        onSelected: (_) {
+                          if (_sort == o.$1) return;
+                          setState(() => _sort = o.$1);
+                          _reload();
+                        },
+                        showCheckmark: false,
+                        visualDensity: VisualDensity.compact,
+                        labelStyle: TextStyle(
+                            fontSize: 12.5, color: _sort == o.$1 ? Colors.white : _colorHeading),
+                        selectedColor: _colorPrimary,
+                        backgroundColor: const Color(0xFFF0F2F5),
+                        side: BorderSide.none,
+                      ),
+                    ),
+                ]),
               ],
             ),
           ),
@@ -645,7 +674,12 @@ class _VisitCard extends StatelessWidget {
         ]),
         const SizedBox(height: 4),
         Text(
-          '${date == null ? '' : _date.format(date)} · ${job['vehicle_number'] ?? ''}',
+          [
+            if (date != null) _date.format(date),
+            job['vehicle_number'] ?? '',
+            if (job['km_reading'] != null)
+              '${NumberFormat.decimalPattern('en_IN').format(int.tryParse(job['km_reading'].toString()) ?? 0)} km',
+          ].join(' · '),
           style: const TextStyle(fontSize: 12.5, color: _colorSubtext),
         ),
         if ((job['notes']?.toString() ?? '').isNotEmpty) ...[

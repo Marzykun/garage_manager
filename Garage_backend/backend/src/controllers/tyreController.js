@@ -3,7 +3,7 @@ const tyreModel = require('../models/tyreModel');
 // POST /api/tyres
 const addTyre = async (req, res, next) => {
   try {
-    const { brand, model, size, vehicle_type, quantity, price, offer } = req.body;
+    const { brand, model, size, vehicle_type, quantity, price, offer, pattern } = req.body;
 
     if (!brand || !size) {
       return res.status(400).json({ success: false, message: 'brand and size are required' });
@@ -11,7 +11,7 @@ const addTyre = async (req, res, next) => {
 
     const tyre = await tyreModel.addTyre(
       brand, model || null, size, vehicle_type || null,
-      quantity || 0, price || null, offer || null
+      quantity || 0, price || null, offer || null, pattern || null
     );
 
     res.status(201).json({ success: true, message: 'Tyre added to stock', data: tyre });
@@ -38,7 +38,7 @@ const getTyreById = async (req, res, next) => {
 // PUT /api/tyres/:id
 const updateTyre = async (req, res, next) => {
   try {
-    const { brand, model, size, vehicle_type, quantity, price, offer } = req.body;
+    const { brand, model, size, vehicle_type, quantity, price, offer, pattern } = req.body;
 
     if (!brand || !size) {
       return res.status(400).json({ success: false, message: 'brand and size are required' });
@@ -46,7 +46,7 @@ const updateTyre = async (req, res, next) => {
 
     const tyre = await tyreModel.updateTyre(
       req.params.id, brand, model || null, size, vehicle_type || null,
-      quantity || 0, price || null, offer || null
+      quantity || 0, price || null, offer || null, pattern || null
     );
 
     if (!tyre) return res.status(404).json({ success: false, message: 'Tyre not found' });

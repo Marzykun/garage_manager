@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:garage_manager/screens/tyre_compare_screen.dart';
 import 'package:garage_manager/services/api_service.dart';
 
 const _colorPrimary  = Color(0xFF2D3A4A);
@@ -89,7 +90,20 @@ class _TyreStockScreenState extends State<TyreStockScreen> {
         title: const Text('Tyre Stock'),
         backgroundColor: _colorPrimary,
         foregroundColor: Colors.white,
+        // App theme sets a dark title/icon style; override it on this dark bar
+        titleTextStyle: const TextStyle(
+            fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => TyreCompareScreen(apiService: widget.apiService),
+            )),
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+            icon: const Icon(Icons.compare_arrows_rounded, size: 20),
+            label: const Text('Compare'),
+          ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
       ),
@@ -139,6 +153,7 @@ class _TyreCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final brand = tyre['brand']?.toString() ?? '';
     final model = tyre['model']?.toString() ?? '';
+    final pattern = tyre['pattern']?.toString() ?? '';
     final size  = tyre['size']?.toString()  ?? '';
     final qty   = int.tryParse(tyre['quantity']?.toString() ?? '0') ?? 0;
     final price = tyre['price'];
@@ -178,7 +193,8 @@ class _TyreCard extends StatelessWidget {
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _colorHeading),
                 ),
                 const SizedBox(height: 3),
-                Text(size, style: const TextStyle(fontSize: 13, color: _colorSubtext)),
+                Text(pattern.isNotEmpty ? '$size · Pattern: $pattern' : size,
+                    style: const TextStyle(fontSize: 13, color: _colorSubtext)),
                 if (vType.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -272,6 +288,7 @@ class _TyreForm extends StatefulWidget {
 class _TyreFormState extends State<_TyreForm> {
   final _brandCtrl  = TextEditingController();
   final _modelCtrl  = TextEditingController();
+  final _patternCtrl = TextEditingController();
   final _sizeCtrl   = TextEditingController();
   final _vTypeCtrl  = TextEditingController();
   final _qtyCtrl    = TextEditingController();
@@ -288,6 +305,7 @@ class _TyreFormState extends State<_TyreForm> {
       final t = widget.existing!;
       _brandCtrl.text  = t['brand']?.toString()         ?? '';
       _modelCtrl.text  = t['model']?.toString()         ?? '';
+      _patternCtrl.text = t['pattern']?.toString()      ?? '';
       _sizeCtrl.text   = t['size']?.toString()          ?? '';
       _vTypeCtrl.text  = t['vehicle_type']?.toString()  ?? '';
       _qtyCtrl.text    = (t['quantity'] ?? 0).toString();
@@ -298,7 +316,7 @@ class _TyreFormState extends State<_TyreForm> {
 
   @override
   void dispose() {
-    _brandCtrl.dispose(); _modelCtrl.dispose(); _sizeCtrl.dispose();
+    _brandCtrl.dispose(); _modelCtrl.dispose(); _sizeCtrl.dispose(); _patternCtrl.dispose();
     _vTypeCtrl.dispose(); _qtyCtrl.dispose(); _priceCtrl.dispose();
     _offerCtrl.dispose();
     super.dispose();
@@ -325,6 +343,8 @@ class _TyreFormState extends State<_TyreForm> {
           brand:       brand,
           size:        size,
           model:       _modelCtrl.text.trim().isEmpty ? null : _modelCtrl.text.trim(),
+          // sent as '' when cleared, so an edit can remove the pattern
+          pattern:     _patternCtrl.text.trim(),
           vehicleType: _vTypeCtrl.text.trim().isEmpty ? null : _vTypeCtrl.text.trim(),
           quantity:    qty,
           price:       price,
@@ -335,6 +355,7 @@ class _TyreFormState extends State<_TyreForm> {
           brand:       brand,
           size:        size,
           model:       _modelCtrl.text.trim().isEmpty ? null : _modelCtrl.text.trim(),
+          pattern:     _patternCtrl.text.trim().isEmpty ? null : _patternCtrl.text.trim(),
           vehicleType: _vTypeCtrl.text.trim().isEmpty ? null : _vTypeCtrl.text.trim(),
           quantity:    qty,
           price:       price,
@@ -386,6 +407,10 @@ class _TyreFormState extends State<_TyreForm> {
               const SizedBox(width: 12),
               Expanded(child: _field(_modelCtrl, 'Model', hint: 'e.g. ZVTS')),
             ]),
+            const SizedBox(height: 12),
+
+            // Pattern / design
+            _field(_patternCtrl, 'Pattern / Design', hint: 'e.g. Wanderer Street'),
             const SizedBox(height: 12),
 
             // Size + Vehicle Type

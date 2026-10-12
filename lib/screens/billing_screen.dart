@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:garage_manager/models/vehicle_types.dart';
 import 'package:garage_manager/services/api_service.dart';
 import 'package:garage_manager/screens/invoice_print_screen.dart';
 
-const double _kGstRate = 0.18; // 18% GST as per client spec
 
 class BillingScreen extends StatefulWidget {
   const BillingScreen({
@@ -42,7 +42,12 @@ class _BillingScreenState extends State<BillingScreen> {
   double get _parts    => double.tryParse(_partsCtrl.text.trim())    ?? 0;
   double get _discount => double.tryParse(_discountCtrl.text.trim()) ?? 0;
   double get _subTotal => _labour + _parts;
-  double get _gstAmount => _subTotal * _kGstRate;
+  // GST % — the rate saved on an existing invoice, otherwise the Settings rate
+  double _gstPercent = 18;
+  String get _gstLabel => _gstPercent == _gstPercent.roundToDouble()
+      ? _gstPercent.toStringAsFixed(0)
+      : _gstPercent.toStringAsFixed(1);
+  double get _gstAmount => _subTotal * _gstPercent / 100;
   double get _total     => _subTotal + _gstAmount - _discount;
 
   @override
@@ -62,6 +67,7 @@ class _BillingScreenState extends State<BillingScreen> {
 
   Future<void> _loadJobDetails() async {
     setState(() { _isLoading = true; _errorMessage = null; });
+    _gstPercent = await widget.apiService.getGstRate();
     try {
       // Load job details
       final response = await widget.apiService.getJob(widget.jobId);
@@ -86,6 +92,7 @@ class _BillingScreenState extends State<BillingScreen> {
             final labour = double.tryParse(inv['labour_charge']?.toString() ?? '0') ?? 0;
             final parts  = double.tryParse(inv['parts_charge']?.toString()  ?? '0') ?? 0;
             final disc   = double.tryParse(inv['discount']?.toString()       ?? '0') ?? 0;
+            _gstPercent  = double.tryParse(inv['gst_percent']?.toString() ?? '') ?? _gstPercent;
             _labourCtrl.text   = labour.toStringAsFixed(0);
             _partsCtrl.text    = parts.toStringAsFixed(0);
             _discountCtrl.text = disc.toStringAsFixed(0);
@@ -93,7 +100,7 @@ class _BillingScreenState extends State<BillingScreen> {
               _billPreview = {
                 'customerName':   inv['customer_name'] ?? _customerName,
                 'vehicleReg':     inv['vehicle_number'] ?? _vehicleNumber,
-                'services':       [inv['service_type'] ?? ''],
+                'services':       [serviceLabel(inv['service_type']?.toString())],
                 'labour':         labour,
                 'parts':          parts,
                 'gst':            double.tryParse(inv['gst_amount']?.toString() ?? '0') ?? 0,
@@ -127,7 +134,7 @@ class _BillingScreenState extends State<BillingScreen> {
           final price = double.tryParse(r['price']?.toString() ?? '') ?? 0;
           if (qty <= 0 || price <= 0) continue;
           total += qty * price;
-          lines.add('${r['brand'] ?? ''} ${r['size'] ?? ''} ×$qty = ₹${(qty * price).toStringAsFixed(0)}');
+          lines.add('${[r['brand'], r['pattern'], r['size']].where((e) => e != null && e.toString().trim().isNotEmpty).join(' ')} ×$qty = ₹${(qty * price).toStringAsFixed(0)}');
         }
         if (total > 0) {
           _loggedPartsLines = lines;
@@ -301,7 +308,7 @@ class _BillingScreenState extends State<BillingScreen> {
       'Services: ${_services.join(', ')}\n'
       'Labour: ₹${_labour.toStringAsFixed(2)}\n'
       'Parts: ₹${_parts.toStringAsFixed(2)}\n'
-      'GST (18%): ₹${_gstAmount.toStringAsFixed(2)}\n'
+      'GST ($_gstLabel%): ₹${_gstAmount.toStringAsFixed(2)}\n'
       '${_discount > 0 ? 'Discount: ₹${_discount.toStringAsFixed(2)}\n' : ''}'
       'Total: ₹${total is num ? total.toDouble().toStringAsFixed(2) : total}',
     );
@@ -391,7 +398,7 @@ class _BillingScreenState extends State<BillingScreen> {
             child: Column(
               children: [
                 _CalcRow('Labour + Parts',    '₹${_subTotal.toStringAsFixed(2)}',  bold: false),
-                _CalcRow('GST (18%)',          '₹${_gstAmount.toStringAsFixed(2)}', bold: false),
+                _CalcRow('GST ($_gstLabel%)',  '₹${_gstAmount.toStringAsFixed(2)}', bold: false),
                 if (_discount > 0)
                   _CalcRow('Discount',         '−₹${_discount.toStringAsFixed(2)}', bold: false),
                 const Divider(height: 16),
@@ -462,7 +469,7 @@ class _BillingScreenState extends State<BillingScreen> {
                   const Divider(height: 20),
                   _CalcRow('Labour',  '₹${(_billPreview!['labour'] as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
                   _CalcRow('Parts',   '₹${(_billPreview!['parts']  as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
-                  _CalcRow('GST 18%', '₹${(_billPreview!['gst']    as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
+                  _CalcRow('GST $_gstLabel%', '₹${(_billPreview!['gst']    as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
                   if ((_billPreview!['discount'] as num?) != null && (_billPreview!['discount'] as num) > 0)
                     _CalcRow('Discount', '−₹${(_billPreview!['discount'] as num).toStringAsFixed(2)}', bold: false),
                   const Divider(height: 16),

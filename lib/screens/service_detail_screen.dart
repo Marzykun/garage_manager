@@ -330,12 +330,11 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       return [const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))];
     }
 
-    final inStock = _tyreStock.where((t) {
-      final qty = int.tryParse(t['quantity']?.toString() ?? '0') ?? 0;
-      return qty > 0;
-    }).toList();
+    int stockOf(dynamic t) => int.tryParse(t['quantity']?.toString() ?? '0') ?? 0;
+    final anyInStock = _tyreStock.any((t) => stockOf(t) > 0);
+    final selStock = _selectedTyre == null ? 0 : stockOf(_selectedTyre);
 
-    if (inStock.isEmpty) {
+    if (_tyreStock.isEmpty) {
       return [
         Container(
           padding: const EdgeInsets.all(12),
@@ -347,7 +346,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           child: const Row(children: [
             Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFFE67E22)),
             SizedBox(width: 8),
-            Expanded(child: Text('No tyres in stock. Add stock via Settings → Tyre Stock.',
+            Expanded(child: Text('No tyres added yet. Add stock via Settings → Tyre Stock.',
                 style: TextStyle(fontSize: 13, color: Color(0xFFE67E22)))),
           ]),
         ),
@@ -356,6 +355,11 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     }
 
     return [
+      if (!anyInStock) ...[
+        const Text('All tyres are out of stock. Update quantities in Settings → Tyre Stock.',
+            style: TextStyle(fontSize: 13, color: Color(0xFFE67E22))),
+        const SizedBox(height: 10),
+      ],
       const _FieldLabel('Select Tyre from Stock'),
       const SizedBox(height: 8),
       Container(
@@ -369,18 +373,34 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             value: _selectedTyre,
             isExpanded: true,
             hint: const Text('Choose tyre…', style: TextStyle(fontSize: 14, color: _colorSubtext)),
-            items: inStock.map((t) {
-              final label = [t['brand'], t['model'], t['size']].where((v) => v != null && v.toString().isNotEmpty).join(' ');
-              final qty = t['quantity']?.toString() ?? '0';
+            // Out-of-stock tyres stay listed (greyed, "No stock") so it's clear
+            // the tyre exists but can't be fitted, instead of silently vanishing.
+            items: _tyreStock.map((t) {
+              final label = [t['brand'], t['model'], t['pattern'], t['size']]
+                  .where((v) => v != null && v.toString().isNotEmpty).join(' ');
+              final qty = stockOf(t);
+              final out = qty <= 0;
               return DropdownMenuItem<Map<String, dynamic>>(
                 value: t as Map<String, dynamic>,
+                enabled: !out,
                 child: Row(children: [
-                  Expanded(child: Text(label, style: const TextStyle(fontSize: 14, color: _colorHeading))),
-                  Text('Qty: $qty', style: const TextStyle(fontSize: 12, color: _colorSubtext)),
+                  Expanded(child: Text(label, style: TextStyle(
+                      fontSize: 14, color: out ? _colorSubtext : _colorHeading))),
+                  Text(out ? 'No stock' : 'In stock: $qty',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: out ? FontWeight.w600 : FontWeight.normal,
+                        color: out ? const Color(0xFFE53935) : _colorSubtext,
+                      )),
                 ]),
               );
             }).toList(),
-            onChanged: (val) => setState(() => _selectedTyre = val),
+            onChanged: (val) => setState(() {
+              _selectedTyre = val;
+              // Don't carry over a count larger than this tyre's stock
+              final max = val == null ? 1 : stockOf(val);
+              if (_tyreQty > max) _tyreQty = max < 1 ? 1 : max;
+            }),
           ),
         ),
       ),
@@ -404,10 +424,15 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         ),
         if (_selectedTyre != null) ...[
           const SizedBox(width: 12),
-          Text('(${_selectedTyre!['quantity']} in stock)',
-              style: const TextStyle(fontSize: 12, color: _colorSubtext)),
+          Text('$_tyreQty / $selStock in stock',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _colorHeading)),
         ],
       ]),
+      if (_selectedTyre != null && _tyreQty >= selStock) ...[
+        const SizedBox(height: 6),
+        const Text('Uses all remaining stock — this tyre will show "No stock" after saving.',
+            style: TextStyle(fontSize: 12, color: Color(0xFFE67E22))),
+      ],
       const SizedBox(height: 16),
       const _FieldLabel('Remarks (optional)'),
       const SizedBox(height: 8),
@@ -604,8 +629,9 @@ class _RecordCard extends StatelessWidget {
   Widget _tyreChangeBody(Map<String, dynamic> m) {
     final brand = m['brand']?.toString() ?? '';
     final model = m['model']?.toString() ?? '';
+    final pattern = m['pattern']?.toString() ?? '';
     final size  = m['size']?.toString()  ?? '';
-    final label = [brand, model, size].where((v) => v.isNotEmpty).join(' ');
+    final label = [brand, model, pattern, size].where((v) => v.isNotEmpty).join(' ');
     final qty   = m['quantity']?.toString() ?? '1';
     final price = m['price'];
 

@@ -110,6 +110,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
         title: const Text('Parts Inventory'),
         backgroundColor: _colorPrimary,
         foregroundColor: Colors.white,
+        // App theme sets a dark title/icon style; override it on this dark bar
+        titleTextStyle: const TextStyle(
+            fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
       ),
       floatingActionButton: FloatingActionButton.extended(

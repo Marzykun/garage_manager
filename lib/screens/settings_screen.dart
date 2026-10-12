@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:garage_manager/services/api_service.dart';
 import 'package:garage_manager/screens/tyre_stock_screen.dart';
+import 'package:garage_manager/screens/tyre_compare_screen.dart';
 import 'package:garage_manager/screens/inventory_screen.dart';
 import 'package:garage_manager/screens/backup_section.dart';
 
@@ -183,6 +184,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             context,
             MaterialPageRoute(
               builder: (_) => TyreStockScreen(apiService: widget.apiService),
+            ),
+          ),
+        ),
+        _NavTile(
+          icon: Icons.compare_arrows_rounded,
+          label: 'Compare Tyres',
+          subtitle: 'Same size — brands, price and stock side by side',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => TyreCompareScreen(apiService: widget.apiService),
             ),
           ),
         ),

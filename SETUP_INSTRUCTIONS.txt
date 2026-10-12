@@ -150,8 +150,17 @@ MADE A MISTAKE IN A JOB (wrong name, phone, number plate, service)?
 Tap the ... on the job > Edit Details, fix it, Save Changes. No need
 to delete the job. It is corrected everywhere, old invoices included.
 
+RETURNING CUSTOMER: in New Job, type their number plate first — name,
+phone and vehicle fill in by themselves and their last visits show.
+Tap the green box to see their full history.
+
+FINISHING A JOB: tap ... on the job > Mark as Completed.
+
+COMPARE TYRES: Dashboard (or Settings) > Compare Tyres — pick a size
+to see every brand in that size with price and stock.
+
 FINDING A CUSTOMER (Owner > Customers tab): the list shows everyone,
-latest visit first. Type a name or phone number to search, or tap a
+A-Z (or tap "Recent visit"). Type a name or phone number to search, or tap a
 vehicle type / service to filter. Tap a customer to see their
 vehicles, every visit, amounts billed, and to Call or WhatsApp them.
 

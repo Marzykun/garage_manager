@@ -4,6 +4,7 @@ const invoiceController = require('../controllers/invoiceController');
 
 router.post('/',                    invoiceController.createInvoice);
 router.get('/',                     invoiceController.getAllInvoices);
+router.get('/gst-rate',             invoiceController.getGstRate);
 router.get('/job/:job_card_id',     invoiceController.getInvoiceByJob);
 router.get('/:id/print',            invoiceController.getInvoicePrintData);
 router.get('/:id',                  invoiceController.getInvoiceById);

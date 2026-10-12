@@ -5,6 +5,12 @@ const pool = require('./db');
 // restart — no manual psql. Fresh installs already have these from schema.sql,
 // making every statement below a no-op.
 const migrate = async () => {
+  // Tyre tread pattern / design name (e.g. "ZLX", "Wanderer Street")
+  await pool.query(`ALTER TABLE tyre_stock ADD COLUMN IF NOT EXISTS pattern TEXT`);
+
+  // Odometer reading taken when the job came in (vehicles.km_run keeps the latest)
+  await pool.query(`ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS km_reading INTEGER`);
+
   // Garage details printed in the invoice header
   await pool.query(`
     ALTER TABLE garage_settings

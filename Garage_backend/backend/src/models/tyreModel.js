@@ -1,12 +1,12 @@
 const pool = require('../config/db');
 
-const addTyre = async (brand, model, size, vehicle_type, quantity, price, offer) => {
+const addTyre = async (brand, model, size, vehicle_type, quantity, price, offer, pattern) => {
   const result = await pool.query(
     `INSERT INTO tyre_stock
-      (brand, model, size, vehicle_type, quantity, price, offer)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+      (brand, model, size, vehicle_type, quantity, price, offer, pattern)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [brand, model, size, vehicle_type, quantity, price, offer]
+    [brand, model, size, vehicle_type, quantity, price, offer, pattern]
   );
   return result.rows[0];
 };
@@ -37,14 +37,14 @@ const getTyreById = async (id) => {
   return result.rows[0];
 };
 
-const updateTyre = async (id, brand, model, size, vehicle_type, quantity, price, offer) => {
+const updateTyre = async (id, brand, model, size, vehicle_type, quantity, price, offer, pattern) => {
   const result = await pool.query(
     `UPDATE tyre_stock
      SET brand = $1, model = $2, size = $3, vehicle_type = $4,
-         quantity = $5, price = $6, offer = $7
-     WHERE id = $8
+         quantity = $5, price = $6, offer = $7, pattern = $8
+     WHERE id = $9
      RETURNING *`,
-    [brand, model, size, vehicle_type, quantity, price, offer, id]
+    [brand, model, size, vehicle_type, quantity, price, offer, pattern, id]
   );
   return result.rows[0];
 };

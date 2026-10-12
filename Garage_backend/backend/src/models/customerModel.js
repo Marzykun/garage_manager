@@ -10,10 +10,10 @@ const getCustomerByPhone = async (phone) => {
 };
 
 // Customer list for the Customers screen. With no filters it lists everyone,
-// most recent visit first. Filters (any combination): free text (name, phone,
+// A–Z by name (sort='name', default) or most recent visit first (sort='recent'). Filters (any combination): free text (name, phone,
 // number plate, vehicle make/model/type), a service they've had done, and a
 // vehicle type. Plates match ignoring spaces/dashes ("KA 01-AB 1234").
-const searchCustomers = async ({ q, service, vehicleType, limit = 30, offset = 0 }) => {
+const searchCustomers = async ({ q, service, vehicleType, sort = 'name', limit = 30, offset = 0 }) => {
   const where  = [];
   const params = [];
 
@@ -79,8 +79,10 @@ const searchCustomers = async ({ q, service, vehicleType, limit = 30, offset = 0
                 ) ORDER BY v.created_at)
          FROM vehicles v WHERE v.customer_id = c.id
        ), '[]') AS vehicles,
-       (SELECT COUNT(*)::int FROM job_cards j WHERE j.customer_id = c.id) AS visit_count,
-       (SELECT MAX(j.created_at) FROM job_cards j WHERE j.customer_id = c.id) AS last_visit,
+       (SELECT COUNT(*)::int FROM job_cards j
+        WHERE j.customer_id = c.id AND j.status <> 'cancelled') AS visit_count,
+       (SELECT MAX(j.created_at) FROM job_cards j
+        WHERE j.customer_id = c.id AND j.status <> 'cancelled') AS last_visit,
        COALESCE((
          SELECT array_agg(DISTINCT j.service_type::text)
          FROM job_cards j WHERE j.customer_id = c.id
@@ -90,7 +92,9 @@ const searchCustomers = async ({ q, service, vehicleType, limit = 30, offset = 0
         WHERE j.customer_id = c.id) AS total_spent
      FROM customers c
      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-     ORDER BY last_visit DESC NULLS LAST, c.name ASC
+     ORDER BY ${sort === 'recent'
+       ? 'last_visit DESC NULLS LAST, lower(c.name) ASC'
+       : 'lower(c.name) ASC, c.created_at ASC'}
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );

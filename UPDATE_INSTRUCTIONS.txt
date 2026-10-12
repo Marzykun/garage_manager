@@ -17,6 +17,18 @@ WHAT THIS UPDATE ADDS
  - New Job Card asks for Vehicle Type and Make / Model (optional)
  - "Edit Details" on every job (the ... menu) — fix a wrong name,
    phone, number plate, vehicle or service without deleting the job
+ - New Job: type a number plate seen before and the customer's name,
+   phone and vehicle fill in by themselves, with their last 3 visits
+   (tap the green box for full history). Kilometres box added.
+ - Customers sorted A-Z (or by recent visit)
+ - Tyre stock: Pattern / Design field, "No stock" shown in Log
+   Details, and Compare Tyres (one size, all brands, price + stock)
+ - Reports: tap Pending Dues or New Customers for the full list,
+   Revenue by Category, Tyre Sales summary (day / week / month)
+ - GST % set in Settings is now used on bills (was always 18%)
+ - Fixed: tapping the status button on a job could make it vanish;
+   jobs are now completed from ... > Mark as Completed
+ - Removing a job puts its logged tyres back in stock
 
 WHAT YOU NEED
  - The client's phone, connected to Wi-Fi (internet is needed for
@@ -122,6 +134,10 @@ INVOICE:
  4. "Print Invoice" prints it (or choose "Save as PDF").
     "Share PDF" sends it on WhatsApp.
 
+CHECK GST (owner):
+ - Settings > Garage Info > GST % — make sure it is the garage's
+   correct rate (usually 18). Bills use this number now.
+
 CUSTOMERS + EDIT:
  1. Add a test job with New Job (pick a Vehicle Type).
  2. On that job tap ... > Edit Details, change the name, tap Save
@@ -129,7 +145,9 @@ CUSTOMERS + EDIT:
  3. Owner: open the Customers tab — the customer list appears
     straight away. Try typing part of a phone number, and tapping
     a vehicle type. Tap a customer to see their details.
- 4. Remove the test job afterwards (... > Remove).
+ 4. New Job again, type the same number plate — the green
+    "Returning" box should appear and fill in the details.
+ 5. Remove the test jobs afterwards (... > Remove).
 
 START SERVER BUTTON (optional test):
  - Only shows when the server is off. If you ever see a red
@@ -149,6 +167,10 @@ START SERVER BUTTON (optional test):
    can only filter by type for vehicles where it was picked.
  - A typo in a name / phone / number plate: ... > Edit Details on
    the job. It fixes it everywhere, old invoices included.
+ - To finish a job: ... > Mark as Completed. The coloured status
+   label on the card is now just a label.
+ - Tyres taken out by jobs removed BEFORE this update were never
+   put back. Check Tyre Stock counts once and correct them.
 
 --------------------------------------------------------------
  IF SOMETHING GOES WRONG

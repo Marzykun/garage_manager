@@ -1,6 +1,13 @@
 const jobModel = require('../models/jobModel');
 const whatsappService = require('../services/whatsappService');
 
+// Odometer value from the request: null if absent/blank, false if invalid.
+const parseKm = (v) => {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  const n = Number(String(v).replace(/[,\s]/g, ''));
+  return Number.isInteger(n) && n >= 0 && n < 10000000 ? n : false;
+};
+
 // POST /api/jobs
 const createJob = async (req, res, next) => {
   try {
@@ -13,6 +20,10 @@ const createJob = async (req, res, next) => {
       notes,
       source,
     } = req.body;
+    const km_reading = parseKm(req.body.km_reading);
+    if (km_reading === false) {
+      return res.status(400).json({ success: false, message: 'km_reading must be a whole number of kilometres' });
+    }
 
     if (!customer_id || !vehicle_id || !service_type) {
       return res.status(400).json({
@@ -28,7 +39,8 @@ const createJob = async (req, res, next) => {
       service_date || null,
       service_time || null,
       notes || null,
-      source || 'walkin'
+      source || 'walkin',
+      km_reading
     );
 
     res.status(201).json({
@@ -237,14 +249,20 @@ const updateJobDetails = async (req, res, next) => {
     const d = {
       customer_name:  text(req.body.customer_name),
       customer_phone: text(req.body.customer_phone),
-      vehicle_number: text(req.body.vehicle_number)?.toUpperCase() ?? null,
+      vehicle_number: text(req.body.vehicle_number)?.toUpperCase().replace(/[^A-Z0-9]/g, '') || null,
       vehicle_type:   text(req.body.vehicle_type)?.toLowerCase() ?? null,
       brand:          text(req.body.brand),
       model:          text(req.body.model),
       service_type:   text(req.body.service_type),
       // notes may be cleared on purpose, so an empty string is kept
       notes:          typeof req.body.notes === 'string' ? req.body.notes.trim() : undefined,
+      // km may be cleared on purpose (empty string → null)
+      km_reading:     req.body.km_reading === undefined ? undefined : parseKm(req.body.km_reading),
     };
+
+    if (d.km_reading === false) {
+      return res.status(400).json({ success: false, message: 'km_reading must be a whole number of kilometres' });
+    }
 
     if (d.service_type && !SERVICE_TYPES.includes(d.service_type)) {
       return res.status(400).json({
@@ -261,6 +279,7 @@ const updateJobDetails = async (req, res, next) => {
 };
 
 module.exports = {
+  SERVICE_TYPES,
   updateJobDetails,
   createJob,
   getAllJobs,

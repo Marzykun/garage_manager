@@ -56,6 +56,7 @@ const getTyreChangeByJobId = async (job_card_id) => {
       tcd.*,
       t.brand,
       t.model,
+      t.pattern,
       t.size,
       t.price
      FROM tyre_change_details tcd

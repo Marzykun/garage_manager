@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import 'package:garage_manager/screens/billing_screen.dart';
+import 'package:garage_manager/screens/report_details_screen.dart';
 import 'package:garage_manager/services/api_service.dart';
 
 const _colorPrimary    = Color(0xFF2D3A4A);
@@ -30,6 +34,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<dynamic> _services = [];
   List<dynamic> _unpaid = [];
   List<dynamic> _trend = [];
+  List<dynamic> _categories = [];
+  Map<String, dynamic> _tyres = {};
+  bool _showAllTyres = false;
 
   @override
   void initState() {
@@ -46,6 +53,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
         widget.apiService.getServiceAnalysis(_range),
         widget.apiService.getUnpaidInvoices(),
         widget.apiService.getRevenueTrend(),
+        widget.apiService.getRevenueByCategory(_range),
+        widget.apiService.getTyreSales(_range),
       ]);
 
       _summary  = (results[0] as Map<String, dynamic>?)?['data'];
@@ -53,6 +62,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _services = ((results[2] as Map<String, dynamic>?)?['data'] as List?) ?? [];
       _unpaid   = ((results[3] as Map<String, dynamic>?)?['data'] as List?) ?? [];
       _trend    = ((results[4] as Map<String, dynamic>?)?['data'] as List?) ?? [];
+      _categories = results[5] as List<dynamic>;
+      _tyres      = results[6] as Map<String, dynamic>;
     } catch (e) {
       _error = e is ApiException ? e.toString() : 'Failed to load reports.';
     } finally {
@@ -84,11 +95,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      _RangePicker(selected: _range, onSelect: (r) { setState(() => _range = r); _load(); }),
+                      RangeChips(selected: _range, onSelect: (r) { setState(() => _range = r); _load(); }),
                       const SizedBox(height: 16),
                       _buildSummarySection(),
                       const SizedBox(height: 16),
                       _buildJobsSection(),
+                      const SizedBox(height: 16),
+                      _buildRevenueByCategory(),
+                      const SizedBox(height: 16),
+                      _buildTyreSales(),
                       const SizedBox(height: 16),
                       _buildServiceBreakdown(),
                       const SizedBox(height: 16),
@@ -116,13 +131,195 @@ class _ReportsScreenState extends State<ReportsScreen> {
         Row(children: [
           Expanded(child: _StatCard(label: 'Revenue Today',   value: _fmt(revenue['revenue_today'], currency: true),   color: _colorSuccess,  icon: Icons.currency_rupee_rounded)),
           const SizedBox(width: 12),
-          Expanded(child: _StatCard(label: 'Pending Dues',    value: _fmt(revenue['pending_revenue'], currency: true),  color: _colorWarning,  icon: Icons.pending_outlined)),
+          Expanded(child: _StatCard(label: 'Pending Dues',    value: _fmt(revenue['pending_revenue'], currency: true),  color: _colorWarning,  icon: Icons.pending_outlined,
+              onTap: _openPendingDues)),
         ]),
         const SizedBox(height: 12),
         Row(children: [
           Expanded(child: _StatCard(label: 'New Jobs Today',  value: _fmt(jobs['new_jobs_today']),      color: _colorPrimary,  icon: Icons.receipt_long_outlined)),
           const SizedBox(width: 12),
-          Expanded(child: _StatCard(label: 'New Customers',   value: _fmt(customers['new_customers_today']), color: _colorInfo,    icon: Icons.person_add_outlined)),
+          Expanded(child: _StatCard(label: 'New Customers',   value: _fmt(customers['new_customers_today']), color: _colorInfo,    icon: Icons.person_add_outlined,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => NewCustomersScreen(apiService: widget.apiService),
+              )))),
+        ]),
+      ],
+    );
+  }
+
+  Future<void> _openPendingDues() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PendingDuesScreen(apiService: widget.apiService),
+    ));
+    _load(); // payments may have been recorded
+  }
+
+  // ── Revenue by category ──────────────────────────────────────────────────
+
+  static const _categoryOrder = [
+    ('wash',            'Wash',             Icons.water_drop_outlined),
+    ('wheel_alignment', 'Wheel Alignment',  Icons.tune),
+    ('wheel_balancing', 'Wheel Balancing',  Icons.rotate_right),
+    ('tyre',            'Tyre',             Icons.tire_repair),
+    ('servicing',       'Servicing',        Icons.build_outlined),
+    ('other',           'Other',            Icons.miscellaneous_services_outlined),
+  ];
+
+  Widget _buildRevenueByCategory() {
+    final byKey = {
+      for (final c in _categories) (c as Map)['category']?.toString(): c.cast<String, dynamic>(),
+    };
+    double n(dynamic v) => double.tryParse(v?.toString() ?? '') ?? 0;
+    final totalReceived = _categories.fold<double>(0, (s, c) => s + n((c as Map)['received']));
+    final totalBilled   = _categories.fold<double>(0, (s, c) => s + n((c as Map)['billed']));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle('Revenue by Category · ${_rangeLabel(_range)}'),
+        const SizedBox(height: 10),
+        _InfoCard(children: [
+          Row(children: [
+            const Expanded(child: SizedBox()),
+            const SizedBox(width: 90, child: Text('Received', textAlign: TextAlign.right,
+                style: TextStyle(fontSize: 11.5, color: _colorSubtext))),
+            const SizedBox(width: 90, child: Text('Billed', textAlign: TextAlign.right,
+                style: TextStyle(fontSize: 11.5, color: _colorSubtext))),
+          ]),
+          const SizedBox(height: 4),
+          for (final cat in _categoryOrder)
+            if (cat.$1 != 'other' || byKey.containsKey('other'))
+              _CategoryRow(
+                icon: cat.$3,
+                label: cat.$2,
+                count: (byKey[cat.$1]?['invoices'] as num?)?.toInt() ?? 0,
+                received: n(byKey[cat.$1]?['received']),
+                billed: n(byKey[cat.$1]?['billed']),
+                share: totalReceived > 0 ? n(byKey[cat.$1]?['received']) / totalReceived : 0,
+              ),
+          const Divider(height: 20),
+          Row(children: [
+            const Expanded(child: Text('Total', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorHeading))),
+            SizedBox(width: 90, child: Text(_rupees(totalReceived), textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorSuccess))),
+            SizedBox(width: 90, child: Text(_rupees(totalBilled), textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorHeading))),
+          ]),
+          if (totalBilled > totalReceived) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: _openPendingDues,
+                child: Text('${_rupees(totalBilled - totalReceived)} still to collect ›',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _colorWarning)),
+              ),
+            ),
+          ],
+        ]),
+      ],
+    );
+  }
+
+  // ── Tyre sales ───────────────────────────────────────────────────────────
+
+  Widget _buildTyreSales() {
+    final totals  = (_tyres['totals'] as Map?) ?? {};
+    final byBrand = ((_tyres['by_brand'] as List?) ?? []).cast<Map>();
+    final byType  = ((_tyres['by_type']  as List?) ?? []).cast<Map>();
+    final byTyre  = ((_tyres['by_tyre']  as List?) ?? []).cast<Map>();
+    final count   = int.tryParse(totals['tyres']?.toString() ?? '') ?? 0;
+    final value   = double.tryParse(totals['value']?.toString() ?? '') ?? 0;
+    final maxBrand = byBrand.fold<int>(1, (m, b) => ((b['tyres'] as num?)?.toInt() ?? 0) > m ? (b['tyres'] as num).toInt() : m);
+    final shownTyres = _showAllTyres ? byTyre : byTyre.take(5).toList();
+
+    String typeLabel(String t) => t == 'unspecified' ? 'Type not set' : '${t[0].toUpperCase()}${t.substring(1)}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle('Tyre Sales · ${_rangeLabel(_range)}'),
+        const SizedBox(height: 10),
+        _InfoCard(children: [
+          Row(children: [
+            Expanded(child: _MiniStat(label: 'Tyres sold', value: '$count')),
+            Expanded(child: _MiniStat(label: 'Value (stock price)', value: _rupees(value))),
+          ]),
+          if (count == 0) ...[
+            const SizedBox(height: 10),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('No tyres sold in this period.',
+                  style: TextStyle(fontSize: 13, color: _colorSubtext)),
+            ),
+          ] else ...[
+            if (byType.isNotEmpty) ...[
+              const Divider(height: 24),
+              const _SubTitle('By type'),
+              SizedBox(width: double.infinity, child: Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final t in byType)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _colorInputBg,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('${typeLabel(t['type'].toString())} · ${t['tyres']}',
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: _colorHeading)),
+                  ),
+              ])),
+            ],
+            const Divider(height: 24),
+            const _SubTitle('By brand'),
+            for (final b in byBrand)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [
+                  SizedBox(width: 80, child: Text(b['brand']?.toString() ?? '',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _colorHeading))),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.all(Radius.circular(4)),
+                      child: LinearProgressIndicator(
+                        value: ((b['tyres'] as num?)?.toDouble() ?? 0) / maxBrand,
+                        backgroundColor: _colorInputBg,
+                        color: _colorPrimary,
+                        minHeight: 8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(width: 36, child: Text('${b['tyres']}', textAlign: TextAlign.right,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _colorHeading))),
+                ]),
+              ),
+            const Divider(height: 24),
+            const _SubTitle('Tyres sold'),
+            for (final t in shownTyres)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [
+                  Expanded(
+                    child: Text(
+                      [t['brand'], t['model'], t['pattern'], t['size']]
+                          .where((e) => e != null && e.toString().trim().isNotEmpty).join(' '),
+                      style: const TextStyle(fontSize: 13, color: _colorBodyText),
+                    ),
+                  ),
+                  Text('×${t['tyres']}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _colorHeading)),
+                ]),
+              ),
+            if (byTyre.length > 5)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(() => _showAllTyres = !_showAllTyres),
+                  child: Text(_showAllTyres ? 'Show fewer' : 'Show all ${byTyre.length}'),
+                ),
+              ),
+          ],
         ]),
       ],
     );
@@ -289,7 +486,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ..._unpaid.map((inv) {
             final m = inv as Map<String, dynamic>;
             final type = (m['service_type']?.toString() ?? '').replaceAll('_', ' ');
-            return Container(
+            return GestureDetector(
+              onTap: m['job_card_id'] == null ? null : () async {
+                await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => BillingScreen(apiService: widget.apiService, jobId: m['job_card_id'].toString()),
+                ));
+                _load();
+              },
+              child: Container(
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(14),
               decoration: const BoxDecoration(
@@ -309,7 +513,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 )),
                 Text(_fmt(m['total_amount'], currency: true),
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _colorWarning)),
+                const Icon(Icons.chevron_right, color: _colorSubtext),
               ]),
+            ),
             );
           }),
       ],
@@ -328,42 +534,6 @@ String _rangeLabel(String range) {
 
 // ─── Shared widgets ───────────────────────────────────────────────────────────
 
-class _RangePicker extends StatelessWidget {
-  const _RangePicker({required this.selected, required this.onSelect});
-  final String selected;
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (final r in [('today', 'Today'), ('week', '7 Days'), ('month', '30 Days')])
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => onSelect(r.$1),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: selected == r.$1 ? _colorPrimary : Colors.white,
-                  borderRadius: const BorderRadius.all(Radius.circular(20)),
-                  border: Border.fromBorderSide(BorderSide(
-                    color: selected == r.$1 ? _colorPrimary : const Color(0xFFE0E4EA),
-                  )),
-                ),
-                child: Text(r.$2,
-                  style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w500,
-                    color: selected == r.$1 ? Colors.white : _colorBodyText,
-                  )),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
   final String text;
@@ -376,14 +546,15 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _StatCard extends StatelessWidget {
-  const _StatCard({required this.label, required this.value, required this.color, required this.icon});
+  const _StatCard({required this.label, required this.value, required this.color, required this.icon, this.onTap});
   final String label, value;
   final Color color;
   final IconData icon;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -398,9 +569,97 @@ class _StatCard extends StatelessWidget {
             Icon(icon, size: 16, color: color),
           ]),
           const SizedBox(height: 8),
-          Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: color, letterSpacing: -0.5)),
+          Row(children: [
+            Expanded(child: Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: color, letterSpacing: -0.5))),
+            if (onTap != null) const Icon(Icons.chevron_right_rounded, size: 20, color: _colorSubtext),
+          ]),
         ],
       ),
+    );
+    if (onTap == null) return card;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(onTap: onTap, borderRadius: const BorderRadius.all(Radius.circular(14)), child: card),
+    );
+  }
+}
+
+final _inr = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+String _rupees(double v) => _inr.format(v);
+
+class _SubTitle extends StatelessWidget {
+  const _SubTitle(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _colorSubtext)),
+        ),
+      );
+}
+
+class _MiniStat extends StatelessWidget {
+  const _MiniStat({required this.label, required this.value});
+  final String label, value;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: _colorHeading)),
+          const SizedBox(height: 2),
+          Text(label, style: const TextStyle(fontSize: 12, color: _colorSubtext)),
+        ],
+      );
+}
+
+class _CategoryRow extends StatelessWidget {
+  const _CategoryRow({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.received,
+    required this.billed,
+    required this.share,
+  });
+  final IconData icon;
+  final String label;
+  final int count;
+  final double received, billed, share;
+
+  @override
+  Widget build(BuildContext context) {
+    final empty = billed == 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(children: [
+        Row(children: [
+          Icon(icon, size: 16, color: empty ? _colorSubtext : _colorPrimary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(count > 0 ? '$label ($count)' : label,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                    color: empty ? _colorSubtext : _colorHeading)),
+          ),
+          SizedBox(width: 90, child: Text(_rupees(received), textAlign: TextAlign.right,
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                  color: empty ? _colorSubtext : _colorSuccess))),
+          SizedBox(width: 90, child: Text(_rupees(billed), textAlign: TextAlign.right,
+              style: TextStyle(fontSize: 13, color: empty ? _colorSubtext : _colorBodyText))),
+        ]),
+        if (!empty) ...[
+          const SizedBox(height: 5),
+          ClipRRect(
+            borderRadius: const BorderRadius.all(Radius.circular(4)),
+            child: LinearProgressIndicator(
+              value: share, backgroundColor: _colorInputBg, color: _colorSuccess, minHeight: 5,
+            ),
+          ),
+        ],
+      ]),
     );
   }
 }

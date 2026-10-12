@@ -108,7 +108,7 @@ const getInvoicePrintData = async (id) => {
       v.vehicle_number,
       v.brand,
       v.model,
-      v.km_run,
+      COALESCE(j.km_reading, v.km_run) AS km_run,
       j.service_type,
       j.notes          AS job_notes,
       j.created_at     AS job_created_at,
@@ -128,7 +128,7 @@ const getInvoicePrintData = async (id) => {
       `SELECT garage_name, address, phone, gstin FROM garage_settings LIMIT 1`
     ),
     pool.query(
-      `SELECT t.brand, t.model, t.size, t.price, tcd.quantity
+      `SELECT t.brand, t.model, t.pattern, t.size, t.price, tcd.quantity
        FROM tyre_change_details tcd
        JOIN tyre_stock t ON t.id = tcd.tyre_id
        WHERE tcd.job_card_id = $1

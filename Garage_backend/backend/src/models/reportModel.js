@@ -1,16 +1,16 @@
 const pool = require('../config/db');
 
-// Daily jobs report
-const getDailyReport = async (date) => {
+// Job counts for a date range (IST). Cancelled jobs aren't counted.
+const getDailyReport = async (from_date, to_date) => {
   const result = await pool.query(
     `SELECT
       COUNT(*) FILTER (WHERE status = 'completed')   AS completed_jobs,
       COUNT(*) FILTER (WHERE status = 'pending')     AS pending_jobs,
       COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_jobs,
-      COUNT(*) AS total_jobs
+      COUNT(*) FILTER (WHERE status <> 'cancelled')  AS total_jobs
      FROM job_cards
-     WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') = $1`,
-    [date]
+     WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2`,
+    [from_date, to_date]
   );
   return result.rows[0];
 };
@@ -164,7 +164,7 @@ const getAdminSummary = async () => {
       COUNT(*) FILTER (WHERE status = 'pending')     AS pending_jobs,
       COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_jobs,
       COUNT(*) FILTER (WHERE status = 'completed' AND DATE(completed_at AT TIME ZONE 'Asia/Kolkata') = $1) AS completed_today,
-      COUNT(*) FILTER (WHERE DATE(created_at) = $1)  AS new_jobs_today
+      COUNT(*) FILTER (WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') = $1 AND status <> 'cancelled') AS new_jobs_today
      FROM job_cards`,
     [today]
   );
@@ -177,7 +177,7 @@ const getAdminSummary = async () => {
   );
 
   const customerResult = await pool.query(
-    `SELECT COUNT(*) FILTER (WHERE DATE(created_at) = $1) AS new_customers_today,
+    `SELECT COUNT(*) FILTER (WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') = $1) AS new_customers_today,
             COUNT(*) AS total_customers
      FROM customers`,
     [today]
@@ -209,9 +209,13 @@ const getUnpaidInvoices = async () => {
   const result = await pool.query(
     `SELECT
       i.id,
+      i.job_card_id,
+      i.invoice_no,
       i.total_amount,
       i.payment_method,
       i.created_at,
+      ((NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        - DATE(i.created_at AT TIME ZONE 'Asia/Kolkata'))::int AS days_pending,
       c.name        AS customer_name,
       c.phone       AS customer_phone,
       v.vehicle_number,
@@ -230,7 +234,7 @@ const getUnpaidInvoices = async () => {
 const getRevenueTrend = async () => {
   const result = await pool.query(
     `SELECT
-      DATE(created_at AT TIME ZONE 'Asia/Kolkata')              AS date,
+      DATE(created_at AT TIME ZONE 'Asia/Kolkata')::text        AS date,
       COALESCE(SUM(total_amount) FILTER (WHERE payment_status = 'paid'), 0) AS revenue,
       COUNT(*) FILTER (WHERE payment_status = 'paid')          AS paid_invoices,
       COUNT(*)                                                  AS total_invoices
@@ -257,7 +261,112 @@ const getRevenueTrend = async () => {
   return trend;
 };
 
+// Customers first added in the range, with what they came for
+const getNewCustomers = async (from_date, to_date) => {
+  const result = await pool.query(
+    `SELECT
+      c.id, c.name, c.phone, c.created_at,
+      COALESCE((
+        SELECT json_agg(json_build_object(
+                 'vehicle_number', v.vehicle_number,
+                 'vehicle_type',   v.vehicle_type,
+                 'brand',          v.brand,
+                 'model',          v.model
+               ) ORDER BY v.created_at)
+        FROM vehicles v WHERE v.customer_id = c.id
+      ), '[]') AS vehicles,
+      (SELECT COUNT(*)::int FROM job_cards j
+       WHERE j.customer_id = c.id AND j.status <> 'cancelled') AS visit_count,
+      (SELECT MAX(j.created_at) FROM job_cards j
+       WHERE j.customer_id = c.id AND j.status <> 'cancelled') AS last_visit,
+      (SELECT j.service_type FROM job_cards j
+       WHERE j.customer_id = c.id AND j.status <> 'cancelled'
+       ORDER BY j.created_at LIMIT 1) AS first_service,
+      (SELECT COALESCE(SUM(i.total_amount), 0)
+       FROM invoices i JOIN job_cards j ON j.id = i.job_card_id
+       WHERE j.customer_id = c.id) AS total_spent
+     FROM customers c
+     WHERE DATE(c.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+     ORDER BY c.created_at DESC`,
+    [from_date, to_date]
+  );
+  return result.rows;
+};
+
+// Money by category of work: billed (all invoices) and received (paid ones).
+// Categories group the job service types the way the garage talks about them.
+const CATEGORY_SQL = `
+  CASE j.service_type
+    WHEN 'water_wash'      THEN 'wash'
+    WHEN 'car_wash'        THEN 'wash'
+    WHEN 'wheel_alignment' THEN 'wheel_alignment'
+    WHEN 'wheel_balancing' THEN 'wheel_balancing'
+    WHEN 'tyre_change'     THEN 'tyre'
+    WHEN 'full_service'    THEN 'servicing'
+    ELSE 'other'
+  END`;
+
+const getRevenueByCategory = async (from_date, to_date) => {
+  const result = await pool.query(
+    `SELECT
+      ${CATEGORY_SQL} AS category,
+      COUNT(i.id)::int AS invoices,
+      COALESCE(SUM(i.total_amount), 0) AS billed,
+      COALESCE(SUM(i.total_amount) FILTER (WHERE i.payment_status = 'paid'), 0) AS received,
+      COALESCE(SUM(i.total_amount) FILTER (WHERE i.payment_status = 'pending'), 0) AS pending
+     FROM invoices i
+     JOIN job_cards j ON j.id = i.job_card_id
+     WHERE DATE(i.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+     GROUP BY 1
+     ORDER BY received DESC, billed DESC`,
+    [from_date, to_date]
+  );
+  return result.rows;
+};
+
+// Tyres sold in the range: fitted on jobs (tyre change log) plus counter
+// sales. Value = quantity x the tyre's current stock price.
+const getTyreSales = async (from_date, to_date) => {
+  const base = `
+    WITH sold AS (
+      SELECT t.brand, t.model, t.pattern, t.size, t.vehicle_type,
+             tcd.quantity, tcd.quantity * COALESCE(t.price, 0) AS value,
+             DATE(tcd.created_at AT TIME ZONE 'Asia/Kolkata') AS day
+      FROM tyre_change_details tcd
+      JOIN tyre_stock t ON t.id = tcd.tyre_id
+      JOIN job_cards  j ON j.id = tcd.job_card_id
+      WHERE j.status <> 'cancelled'
+      UNION ALL
+      SELECT t.brand, t.model, t.pattern, t.size, t.vehicle_type,
+             ts.quantity, COALESCE(NULLIF(ts.total_amount, 0), ts.quantity * COALESCE(t.price, 0)),
+             DATE(ts.created_at AT TIME ZONE 'Asia/Kolkata')
+      FROM tyre_sales ts
+      JOIN tyre_stock t ON t.id = ts.tyre_id
+    )
+    SELECT * FROM sold WHERE day BETWEEN $1 AND $2`;
+
+  const q = (sql) => pool.query(sql, [from_date, to_date]).then((r) => r.rows);
+  const [totals, byBrand, byType, byTyre, byDay] = await Promise.all([
+    q(`SELECT COALESCE(SUM(quantity), 0)::int AS tyres, COALESCE(SUM(value), 0) AS value
+       FROM (${base}) s`),
+    q(`SELECT brand, SUM(quantity)::int AS tyres, SUM(value) AS value
+       FROM (${base}) s GROUP BY brand ORDER BY tyres DESC, brand`),
+    q(`SELECT COALESCE(NULLIF(lower(trim(vehicle_type)), ''), 'unspecified') AS type,
+              SUM(quantity)::int AS tyres, SUM(value) AS value
+       FROM (${base}) s GROUP BY 1 ORDER BY tyres DESC`),
+    q(`SELECT brand, model, pattern, size, SUM(quantity)::int AS tyres, SUM(value) AS value
+       FROM (${base}) s GROUP BY brand, model, pattern, size ORDER BY tyres DESC LIMIT 15`),
+    q(`SELECT day::text AS day, SUM(quantity)::int AS tyres, SUM(value) AS value
+       FROM (${base}) s GROUP BY day ORDER BY day`),
+  ]);
+
+  return { totals: totals[0], by_brand: byBrand, by_type: byType, by_tyre: byTyre, by_day: byDay };
+};
+
 module.exports = {
+  getNewCustomers,
+  getRevenueByCategory,
+  getTyreSales,
   getDailyReport,
   getRevenueReport,
   getServiceBreakdown,

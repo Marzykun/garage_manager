@@ -90,6 +90,17 @@ const getVehicleByNumber = async (req, res, next) => {
     next(err);
   }
 };
+// GET /api/vehicles/lookup/:plate — returning-vehicle details for New Job
+const lookupByPlate = async (req, res, next) => {
+  try {
+    const data = await vehicleModel.lookupByPlate(req.params.plate);
+    if (!data) return res.status(404).json({ success: false, message: 'New vehicle' });
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // PATCH /api/vehicles/:id/km
 const updateVehicleKm = async (req, res, next) => {
   try {
@@ -146,6 +157,7 @@ const updateVehicleDetails = async (req, res, next) => {
 
 module.exports = {
   addVehicle,
+  lookupByPlate,
   updateVehicleDetails,
   getVehiclesByCustomer,
   updateVehicleKm,

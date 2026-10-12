@@ -31,13 +31,10 @@ const lookupCustomer = async (req, res) => {
   }
 };
 
-const SERVICE_TYPES = [
-  'wheel_alignment', 'wheel_balancing', 'tyre_change',
-  'water_wash', 'full_service', 'car_wash', 'other',
-];
+const { SERVICE_TYPES } = require('./jobController');
 
-// GET /api/customers/search?q=&service=&vehicle_type=&limit=&offset=
-// All filters optional — with none, lists every customer (latest visit first).
+// GET /api/customers/search?q=&service=&vehicle_type=&sort=name|recent&limit=&offset=
+// All filters optional — with none, lists every customer (A–Z by default).
 const searchCustomers = async (req, res, next) => {
   try {
     const q           = (req.query.q || '').trim();
@@ -45,6 +42,7 @@ const searchCustomers = async (req, res, next) => {
     const vehicleType = (req.query.vehicle_type || '').trim();
     const limit       = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
     const offset      = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const sort        = req.query.sort === 'recent' ? 'recent' : 'name';
 
     if (service && !SERVICE_TYPES.includes(service)) {
       return res.status(400).json({
@@ -53,7 +51,7 @@ const searchCustomers = async (req, res, next) => {
       });
     }
 
-    const customers = await customerModel.searchCustomers({ q, service, vehicleType, limit, offset });
+    const customers = await customerModel.searchCustomers({ q, service, vehicleType, sort, limit, offset });
 
     res.status(200).json({
       success: true,

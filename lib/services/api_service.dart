@@ -121,7 +121,11 @@ class ApiService {
     String? vehicleType,
     String? vehicleBrand,
     String? vehicleModel,
+    int? kmReading,
   }) async {
+    // Store plates one consistent way: "ka 01-ab 1234" → "KA01AB1234"
+    vehicleReg = vehicleReg.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+
     // Step 1 — look up customer by phone
     final lookupUri = Uri.parse('$kApiBaseUrl/api/customers/lookup/${Uri.encodeComponent(phone)}');
     final lookupResp = await http.get(lookupUri, headers: _createHeaders());
@@ -198,6 +202,7 @@ class ApiService {
         'service_type': serviceType,
         'notes': notes,
         'source': _toSourceEnum(source),
+        if (kmReading != null) 'km_reading': kmReading,
       }),
     );
 
@@ -218,20 +223,20 @@ class ApiService {
     return decoded ?? [];
   }
 
-  /// [currentStatus] is the job's current status string from the backend.
-  /// This maps it to the correct route:
+  /// Moves a job one step forward based on its current status:
   ///   pending      → PATCH /api/jobs/:id/start
   ///   in_progress  → PATCH /api/jobs/:id/complete
-  ///   anything else (e.g. cancel from UI) → PATCH /api/jobs/:id/cancel
+  /// Any other status (completed, cancelled…) is final — it throws instead of
+  /// guessing. Cancelling is only ever done explicitly via [cancelJob].
   Future<dynamic> updateJobStatus(String jobId, {String currentStatus = 'pending'}) async {
     final s = currentStatus.toLowerCase();
     final String action;
     if (s.contains('pending')) {
       action = 'start';
-    } else if (s.contains('progress') || s.contains('in_progress')) {
+    } else if (s.contains('progress')) {
       action = 'complete';
     } else {
-      action = 'cancel';
+      throw StateError('Job is already "$currentStatus" — nothing to advance.');
     }
 
     final uri = Uri.parse('$kApiBaseUrl/api/jobs/$jobId/$action');
@@ -251,6 +256,7 @@ class ApiService {
     String? vehicleModel,
     required String service,
     required String notes,
+    int? kmReading,
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/jobs/$jobId/details');
     final response = await http.put(
@@ -265,9 +271,20 @@ class ApiService {
         'model':          vehicleModel,
         'service_type':   _toServiceTypeEnum(service),
         'notes':          notes,
+        'km_reading':     kmReading ?? '',
       }),
     );
     return _decodeResponse(response);
+  }
+
+  /// Returning-vehicle details for New Job: `{vehicle, customer, recent_jobs,
+  /// visit_count}`, or null when the plate has never been seen (404).
+  Future<Map<String, dynamic>?> lookupVehicle(String plate) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/vehicles/lookup/${Uri.encodeComponent(plate)}');
+    final response = await http.get(uri, headers: _createHeaders());
+    if (response.statusCode == 404) return null;
+    final decoded = await _decodeResponse(response);
+    return (decoded as Map<String, dynamic>)['data'] as Map<String, dynamic>?;
   }
 
   Future<dynamic> cancelJob(String jobId) async {
@@ -307,6 +324,7 @@ class ApiService {
     String? query,
     String? service,
     String? vehicleType,
+    String sort = 'name',
     int limit = 30,
     int offset = 0,
   }) async {
@@ -314,6 +332,7 @@ class ApiService {
       if (query != null && query.isNotEmpty) 'q': query,
       if (service != null) 'service': service,
       if (vehicleType != null) 'vehicle_type': vehicleType,
+      'sort': sort,
       'limit': '$limit',
       'offset': '$offset',
     });
@@ -362,6 +381,19 @@ class ApiService {
     return _decodeResponse(response);
   }
 
+  /// GST % from Settings, applied to new invoices (falls back to 18 on error).
+  Future<double> getGstRate() async {
+    try {
+      final uri = Uri.parse('$kApiBaseUrl/api/invoices/gst-rate');
+      final response = await http.get(uri, headers: _createHeaders());
+      final decoded = await _decodeResponse(response);
+      final p = double.tryParse(decoded['data']?['gst_percent']?.toString() ?? '');
+      return p ?? 18;
+    } catch (_) {
+      return 18;
+    }
+  }
+
   /// Invoice + garage header details + itemised tyres/parts, for printing.
   Future<Map<String, dynamic>> getInvoicePrintData(String invoiceId) async {
     final uri = Uri.parse('$kApiBaseUrl/api/invoices/$invoiceId/print');
@@ -383,7 +415,6 @@ class ApiService {
       body: jsonEncode({
         'labour_charge': labourCharge,
         'parts_charge':  partsCharge,
-        'gst_percent':   18,
         'discount':      discount,
       }),
     );
@@ -524,6 +555,30 @@ class ApiService {
     final uri = Uri.parse('$kApiBaseUrl/api/reports/unpaid');
     final response = await http.get(uri, headers: _createHeaders());
     return _decodeResponse(response);
+  }
+
+  /// Customers first added in [range] (today | week | month).
+  Future<List<dynamic>> getNewCustomers(String range) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/reports/new-customers?range=$range');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return ((decoded as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
+  /// Billed / received / pending per category (wash, tyre, servicing…).
+  Future<List<dynamic>> getRevenueByCategory(String range) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/reports/revenue-by-category?range=$range');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return ((decoded as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
+  /// Tyres sold: `{totals, by_brand, by_type, by_tyre, by_day}`.
+  Future<Map<String, dynamic>> getTyreSales(String range) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/reports/tyre-sales?range=$range');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return ((decoded as Map<String, dynamic>)['data'] as Map<String, dynamic>?) ?? {};
   }
 
   Future<dynamic> getRevenueTrend() async {
@@ -742,6 +797,7 @@ class ApiService {
     required String brand,
     required String size,
     String? model,
+    String? pattern,
     String? vehicleType,
     int quantity = 0,
     double? price,
@@ -755,6 +811,7 @@ class ApiService {
         'brand':    brand,
         'size':     size,
         if (model       != null && model.isNotEmpty)       'model':        model,
+        if (pattern     != null && pattern.isNotEmpty)     'pattern':      pattern,
         if (vehicleType != null && vehicleType.isNotEmpty) 'vehicle_type': vehicleType,
         'quantity': quantity,
         if (price != null) 'price': price,
@@ -769,6 +826,7 @@ class ApiService {
     required String brand,
     required String size,
     String? model,
+    String? pattern,
     String? vehicleType,
     int quantity = 0,
     double? price,
@@ -782,6 +840,7 @@ class ApiService {
         'brand':    brand,
         'size':     size,
         if (model       != null) 'model':        model,
+        if (pattern     != null) 'pattern':      pattern,
         if (vehicleType != null) 'vehicle_type': vehicleType,
         'quantity': quantity,
         if (price != null) 'price': price,

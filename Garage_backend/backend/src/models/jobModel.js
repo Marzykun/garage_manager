@@ -1,14 +1,23 @@
 const pool = require('../config/db');
 
-const createJob = async (customer_id, vehicle_id, service_type, service_date, service_time, notes, source) => {
+const createJob = async (customer_id, vehicle_id, service_type, service_date, service_time, notes, source, km_reading) => {
   const result = await pool.query(
     `INSERT INTO job_cards 
-      (customer_id, vehicle_id, service_type, service_date, service_time, notes, source, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+      (customer_id, vehicle_id, service_type, service_date, service_time, notes, source, status, km_reading)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
      RETURNING *`,
-    [customer_id, vehicle_id, service_type, service_date, service_time, notes, source]
+    [customer_id, vehicle_id, service_type, service_date, service_time, notes, source, km_reading]
   );
+  if (km_reading) await bumpVehicleKm(vehicle_id, km_reading);
   return result.rows[0];
+};
+
+// vehicles.km_run holds the latest known odometer reading — never move it backwards
+const bumpVehicleKm = async (vehicle_id, km, db = pool) => {
+  await db.query(
+    'UPDATE vehicles SET km_run = GREATEST(COALESCE(km_run, 0), $1) WHERE id = $2',
+    [km, vehicle_id]
+  );
 };
 
 const getAllJobs = async (date) => {
@@ -114,15 +123,39 @@ const completeJob = async (id) => {
   return result.rows[0];
 };
 
+// Cancels the job and puts any tyres logged on it back into stock. Only the
+// first cancel restores stock, so cancelling twice can't add tyres twice.
 const cancelJob = async (id) => {
-  const result = await pool.query(
-    `UPDATE job_cards
-     SET status = 'cancelled'
-     WHERE id = $1
-     RETURNING *`,
-    [id]
-  );
-  return result.rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE job_cards SET status = 'cancelled'
+       WHERE id = $1 AND status <> 'cancelled'
+       RETURNING *`,
+      [id]
+    );
+    if (result.rows[0]) {
+      await client.query(
+        `UPDATE tyre_stock t
+         SET quantity = t.quantity + used.qty
+         FROM (SELECT tyre_id, SUM(quantity) AS qty
+               FROM tyre_change_details WHERE job_card_id = $1
+               GROUP BY tyre_id) used
+         WHERE t.id = used.tyre_id`,
+        [id]
+      );
+    }
+    await client.query('COMMIT');
+    if (result.rows[0]) return result.rows[0];
+    // Already cancelled (or missing): return it unchanged, null → 404
+    return (await pool.query('SELECT * FROM job_cards WHERE id = $1', [id])).rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 const markReadyForDelivery = async (id) => {
@@ -174,7 +207,10 @@ const updateJobDetails = async (id, d) => {
     let vehicleId = job.vehicle_id;
     if (d.vehicle_number) {
       const other = await client.query(
-        'SELECT id, customer_id FROM vehicles WHERE upper(vehicle_number) = upper($1) AND id <> $2',
+        `SELECT id, customer_id FROM vehicles
+         WHERE regexp_replace(upper(vehicle_number), '[^A-Z0-9]', '', 'g')
+             = regexp_replace(upper($1), '[^A-Z0-9]', '', 'g')
+           AND id <> $2`,
         [d.vehicle_number, job.vehicle_id]
       );
       if (other.rows[0]) {
@@ -202,10 +238,13 @@ const updateJobDetails = async (id, d) => {
       `UPDATE job_cards
        SET vehicle_id   = $1,
            service_type = COALESCE($2::service_type, service_type),
-           notes        = CASE WHEN $3::boolean THEN $4 ELSE notes END
+           notes        = CASE WHEN $3::boolean THEN $4 ELSE notes END,
+           km_reading   = CASE WHEN $6::boolean THEN $7 ELSE km_reading END
        WHERE id = $5`,
-      [vehicleId, d.service_type, d.notes !== undefined, d.notes ?? null, id]
+      [vehicleId, d.service_type, d.notes !== undefined, d.notes ?? null, id,
+       d.km_reading !== undefined, d.km_reading ?? null]
     );
+    if (d.km_reading) await bumpVehicleKm(vehicleId, d.km_reading, client);
 
     await client.query('COMMIT');
   } catch (err) {

@@ -1,5 +1,13 @@
 const invoiceModel   = require('../models/invoiceModel');
 const whatsappService = require('../services/whatsappService');
+const settingsModel   = require('../models/settingsModel');
+
+// The GST % set by the owner in Settings (falls back to 18 if unset).
+const currentGstPercent = async () => {
+  const s = await settingsModel.getGarageSettings();
+  const p = parseFloat(s?.gst_percent);
+  return Number.isFinite(p) ? p : 18;
+};
 
 // POST /api/invoices
 const createInvoice = async (req, res, next) => {
@@ -7,7 +15,7 @@ const createInvoice = async (req, res, next) => {
     const job_card_id    = req.body.job_card_id;
     const labour_charge  = req.body.labour_charge  || 0;
     const parts_charge   = req.body.parts_charge   || 0;
-    const gst_percent    = req.body.gst_percent    || 18;
+    const gst_percent    = req.body.gst_percent ?? await currentGstPercent();
     const discount       = req.body.discount       || 0;
     const payment_method = req.body.payment_method;
 
@@ -128,6 +136,15 @@ const getInvoiceById = async (req, res, next) => {
   }
 };
 
+// GET /api/invoices/gst-rate — current GST % for new invoices (mechanics too)
+const getGstRate = async (req, res, next) => {
+  try {
+    res.status(200).json({ success: true, data: { gst_percent: await currentGstPercent() } });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // GET /api/invoices/:id/print — invoice + garage header + itemised lines
 const getInvoicePrintData = async (req, res, next) => {
   try {
@@ -170,8 +187,16 @@ const updateInvoice = async (req, res, next) => {
   try {
     const labour_charge = req.body.labour_charge ?? 0;
     const parts_charge  = req.body.parts_charge  ?? 0;
-    const gst_percent   = req.body.gst_percent   ?? 18;
     const discount      = req.body.discount      ?? 0;
+
+    // Keep the rate the invoice was created with unless one is sent, so
+    // changing the Settings rate later doesn't silently re-price old bills.
+    let gst_percent = req.body.gst_percent;
+    if (gst_percent === undefined || gst_percent === null) {
+      const existing = await invoiceModel.getInvoiceById(req.params.id);
+      if (!existing) return res.status(404).json({ success: false, message: 'Invoice not found' });
+      gst_percent = existing.gst_percent;
+    }
 
     const invoice = await invoiceModel.updateInvoice(
       req.params.id, labour_charge, parts_charge, gst_percent, discount
@@ -228,6 +253,7 @@ module.exports = {
   getInvoiceById,
   getInvoiceByJob,
   getInvoicePrintData,
+  getGstRate,
   markAsPaid,
   sendInvoiceWhatsApp,
 };

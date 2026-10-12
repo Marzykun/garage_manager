@@ -39,7 +39,7 @@ const getDailyReport = async (req, res, next) => {
       });
     }
 
-    const jobs     = await reportModel.getDailyReport(dates.to_date);
+    const jobs     = await reportModel.getDailyReport(dates.from_date, dates.to_date);
     const revenue  = await reportModel.getRevenueReport(dates.from_date, dates.to_date);
     const services = await reportModel.getServiceBreakdown(dates.from_date, dates.to_date);
 
@@ -173,7 +173,32 @@ const getRevenueTrend = async (req, res, next) => {
   }
 };
 
+// Shared handler for the range-based list reports below
+const rangeReport = (fn, defaultRange = 'today') => async (req, res, next) => {
+  try {
+    const range = req.query.range || defaultRange;
+    const dates = getDateRange(range);
+    if (!dates) {
+      return res.status(400).json({ success: false, message: 'range must be today, week or month' });
+    }
+    const data = await fn(dates.from_date, dates.to_date);
+    res.status(200).json({ success: true, range, ...dates, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/reports/new-customers?range=
+const getNewCustomers = rangeReport(reportModel.getNewCustomers);
+// GET /api/reports/revenue-by-category?range=
+const getRevenueByCategory = rangeReport(reportModel.getRevenueByCategory);
+// GET /api/reports/tyre-sales?range=
+const getTyreSales = rangeReport(reportModel.getTyreSales);
+
 module.exports = {
+  getNewCustomers,
+  getRevenueByCategory,
+  getTyreSales,
   getDailyReport,
   getServiceAnalysis,
   getSalesAnalysis,

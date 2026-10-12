@@ -405,7 +405,7 @@ class InvoicePdf {
       final qty   = int.tryParse(t['quantity']?.toString() ?? '') ?? 0;
       final price = _num(t['price']);
       if (qty <= 0 || price <= 0) continue;
-      final name = [t['brand'], t['model'], t['size']]
+      final name = [t['brand'], t['model'], t['pattern'], t['size']]
           .where((e) => e != null && e.toString().trim().isNotEmpty)
           .join(' ');
       tyreItems.add(_Item('Tyre — $name', qty, price));
