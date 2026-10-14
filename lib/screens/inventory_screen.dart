@@ -377,9 +377,15 @@ class _ItemFormState extends State<_ItemForm> {
           name: name, category: _category, quantity: qty, unit: unit, minStock: min,
         );
       } else {
-        await widget.apiService.addInventoryItem(
+        final res = await widget.apiService.addInventoryItem(
           name: name, category: _category, quantity: qty, unit: unit, minStock: min,
         );
+        if (res is Map && res['merged'] == true && mounted) {
+          // Already in stock: backend added to the existing card instead of making a new one
+          final now = (res['data'] as Map?)?['quantity'];
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Added $qty to existing $name (now $now)')));
+        }
       }
       if (mounted) Navigator.pop(context, true);
     } catch (e) {

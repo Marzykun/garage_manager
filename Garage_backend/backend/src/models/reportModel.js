@@ -40,6 +40,7 @@ const getServiceBreakdown = async (from_date, to_date) => {
       COUNT(*) FILTER (WHERE status = 'completed') AS completed
      FROM job_cards
      WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+       AND status <> 'cancelled'
      GROUP BY service_type
      ORDER BY total_jobs DESC`,
     [from_date, to_date]
@@ -92,6 +93,7 @@ const getServiceAnalysis = async (from_date, to_date) => {
       ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) AS percentage
      FROM job_cards
      WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+       AND status <> 'cancelled'
      GROUP BY service_type
      ORDER BY total_jobs DESC`,
     [from_date, to_date]
@@ -324,6 +326,31 @@ const getRevenueByCategory = async (from_date, to_date) => {
   return result.rows;
 };
 
+// How paid invoices were settled (cash / upi / card...), plus the unpaid bucket.
+// Dated by invoice creation like the other reports (there is no paid_at column).
+const getPaymentModes = async (from_date, to_date) => {
+  const result = await pool.query(
+    `SELECT COALESCE(payment_method::text, 'unknown') AS method,
+            payment_status::text AS status,
+            COUNT(*)::int AS count,
+            COALESCE(SUM(total_amount), 0) AS amount
+     FROM invoices
+     WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+     GROUP BY 1, 2
+     ORDER BY amount DESC`,
+    [from_date, to_date]
+  );
+  const paid = result.rows.filter((r) => r.status === 'paid');
+  const pending = result.rows.filter((r) => r.status !== 'paid');
+  const sum = (rows, k) => rows.reduce((t, r) => t + Number(r[k]), 0);
+  return {
+    methods: paid.map(({ method, count, amount }) => ({ method, count, amount })),
+    total_count: sum(paid, 'count'),
+    total_amount: sum(paid, 'amount'),
+    unpaid: { count: sum(pending, 'count'), amount: sum(pending, 'amount') },
+  };
+};
+
 // Tyres sold in the range: fitted on jobs (tyre change log) plus counter
 // sales. Value = quantity x the tyre's current stock price.
 const getTyreSales = async (from_date, to_date) => {
@@ -363,9 +390,26 @@ const getTyreSales = async (from_date, to_date) => {
   return { totals: totals[0], by_brand: byBrand, by_type: byType, by_tyre: byTyre, by_day: byDay };
 };
 
+// Tyres bought from the dealer in the range (tyre_purchases log).
+const getTyrePurchases = async (from_date, to_date) => {
+  const base = `FROM tyre_purchases
+    WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2`;
+  const q = (sql) => pool.query(sql, [from_date, to_date]).then((r) => r.rows);
+  const [totals, rows] = await Promise.all([
+    q(`SELECT COALESCE(SUM(quantity), 0)::int AS tyres,
+              COALESCE(SUM(quantity * unit_cost), 0) AS cost ${base}`),
+    q(`SELECT brand, size, SUM(quantity)::int AS tyres,
+              COALESCE(SUM(quantity * unit_cost), 0) AS cost ${base}
+       GROUP BY brand, size ORDER BY tyres DESC, brand, size`),
+  ]);
+  return { total_tyres: totals[0].tyres, total_cost: totals[0].cost, rows };
+};
+
 module.exports = {
+  getTyrePurchases,
   getNewCustomers,
   getRevenueByCategory,
+  getPaymentModes,
   getTyreSales,
   getDailyReport,
   getRevenueReport,

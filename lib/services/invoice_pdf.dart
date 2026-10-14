@@ -5,28 +5,25 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// Builds a printable A4 invoice from the `/api/invoices/:id/print` payload:
-/// `{ invoice: {...}, garage: {...}, tyres: [...], parts_used: [...] }`.
-///
-/// Line items always add up to the saved invoice: labour, then the logged
-/// tyres (when they account for the parts charge), with any remainder shown as
-/// "Other parts & consumables".
+/// Builds a printable A4 bill from the `/api/invoices/:id/print` payload:
+/// `{ bill_type: 'tyre'|'service', invoice, garage, tyres, parts_used }`.
+/// Tyre bill = "Cash Bill" (CGST 9% + SGST 9% on parts, rounded total);
+/// service bill = "LABOUR BILL" (no GST).
 class InvoicePdf {
   static const _ink     = PdfColor.fromInt(0xFF1A2332);
   static const _muted   = PdfColor.fromInt(0xFF5A6578);
-  static const _rule    = PdfColor.fromInt(0xFFD5D9E0);
-  static const _band    = PdfColor.fromInt(0xFFF0F2F5);
-  static const _brand   = PdfColor.fromInt(0xFF2D3A4A);
-  static const _paid    = PdfColor.fromInt(0xFF1E8449);
-  static const _pending = PdfColor.fromInt(0xFFB9770E);
 
-  static final _money = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
   static final _date  = DateFormat('dd MMM yyyy');
 
   static String invoiceNumber(Map<String, dynamic> invoice) {
     final n = invoice['invoice_no'];
     return n == null ? '—' : 'INV-${n.toString().padLeft(4, '0')}';
   }
+
+  static const _tyreTagline =
+      'Computerised 3D Wheel Alignment & Balancing, Automatic Tyre Changing, Tubeless Tyre Repair, Nitrogen Air, Water Wash';
+  static const _serviceTagline =
+      'Computerised 3D Wheel Alignment, Wheel balancing, Tyre changing, Nitrogen air, Car washing, Interior cleaning, Exterior polishing';
 
   static Future<Uint8List> build(Map<String, dynamic> data) async {
     final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
@@ -36,403 +33,312 @@ class InvoicePdf {
     final garage = (data['garage']  as Map? ?? {}).cast<String, dynamic>();
     final tyres  = (data['tyres']   as List? ?? []).cast<Map>();
     final partsUsed = (data['parts_used'] as List? ?? []).map((e) => e.toString()).toList();
-
-    final labour   = _num(inv['labour_charge']);
-    final parts    = _num(inv['parts_charge']);
-    final gstPct   = _num(inv['gst_percent']);
-    final gst      = _num(inv['gst_amount']);
-    final discount = _num(inv['discount']);
-    final total    = _num(inv['total_amount']);
-    final subTotal = labour + parts;
-
-    final gstin  = (garage['gstin'] ?? '').toString().trim();
-    final isTaxInvoice = gstin.isNotEmpty;
+    final isTyre = (data['bill_type'] ?? (tyres.isNotEmpty ? 'tyre' : 'service')) == 'tyre';
     final garageName = _str(garage['garage_name'], 'My Garage');
-    final isPaid = inv['payment_status'] == 'paid';
-
-    final items = _lineItems(
-      service: _serviceLabel(inv['service_type']?.toString()),
-      labour: labour,
-      parts: parts,
-      tyres: tyres,
-      partsUsed: partsUsed,
-    );
 
     final doc = pw.Document(
       title: '${invoiceNumber(inv)} — $garageName',
       author: garageName,
       theme: pw.ThemeData.withFont(base: regular, bold: bold),
     );
-
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.fromLTRB(36, 36, 36, 36),
-        footer: (ctx) => pw.Container(
-          alignment: pw.Alignment.centerRight,
-          margin: const pw.EdgeInsets.only(top: 8),
-          child: pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
-              style: const pw.TextStyle(fontSize: 8, color: _muted)),
-        ),
-        build: (ctx) => [
-          _header(garage, garageName, gstin, isTaxInvoice, inv),
-          pw.SizedBox(height: 18),
-          _parties(inv),
-          pw.SizedBox(height: 18),
-          _itemsTable(items),
-          pw.SizedBox(height: 12),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Expanded(
-                flex: 5,
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    _label('Amount in words'),
-                    pw.SizedBox(height: 3),
-                    pw.Text(_amountInWords(total),
-                        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                    pw.SizedBox(height: 14),
-                    _label('Payment'),
-                    pw.SizedBox(height: 3),
-                    pw.Text(
-                      isPaid
-                          ? 'PAID${_paymentLabel(inv['payment_method']) != null ? ' — ${_paymentLabel(inv['payment_method'])}' : ''}'
-                          : 'PENDING',
-                      style: pw.TextStyle(
-                        fontSize: 10,
-                        fontWeight: pw.FontWeight.bold,
-                        color: isPaid ? _paid : _pending,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              pw.SizedBox(width: 24),
-              pw.Expanded(
-                flex: 4,
-                child: _totals(
-                  subTotal: subTotal,
-                  gstPct: gstPct,
-                  gst: gst,
-                  discount: discount,
-                  total: total,
-                  splitGst: isTaxInvoice,
-                ),
-              ),
-            ],
-          ),
-          if (_str(inv['job_notes'], '').isNotEmpty) ...[
-            pw.SizedBox(height: 18),
-            _label('Notes'),
-            pw.SizedBox(height: 3),
-            pw.Text(_str(inv['job_notes'], ''), style: const pw.TextStyle(fontSize: 9.5, color: _ink)),
-          ],
-          pw.SizedBox(height: 36),
-          _signOff(garageName),
-        ],
+        build: (ctx) => isTyre
+            ? _tyreBill(inv, garage, garageName, tyres, partsUsed)
+            : _serviceBill(inv, garage, garageName, partsUsed),
       ),
     );
-
     return doc.save();
   }
 
-  // ── Sections ─────────────────────────────────────────────────────────────
+  // ── Tyre sales bill ("Cash Bill") ────────────────────────────────────────
 
-  static pw.Widget _header(Map<String, dynamic> garage, String garageName, String gstin,
-      bool isTaxInvoice, Map<String, dynamic> inv) {
-    final address = _str(garage['address'], '');
-    final phone   = _str(garage['phone'], '');
+  static List<pw.Widget> _tyreBill(Map<String, dynamic> inv, Map<String, dynamic> garage,
+      String garageName, List<Map> tyres, List<String> partsUsed) {
+    final labour   = _num(inv['labour_charge']);
+    final parts    = _num(inv['parts_charge']);
+    final discount = _num(inv['discount']);
+    final pct      = _num(inv['gst_percent']);
+    final t = tyreTotals(labour: labour, parts: parts, discount: discount, gstPercent: pct);
 
-    return pw.Column(children: [
-      pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Expanded(
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(garageName,
-                    style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: _brand)),
-                if (address.isNotEmpty) ...[
-                  pw.SizedBox(height: 4),
-                  pw.Text(address, style: const pw.TextStyle(fontSize: 9.5, color: _muted)),
-                ],
-                if (phone.isNotEmpty) ...[
-                  pw.SizedBox(height: 2),
-                  pw.Text('Phone: $phone', style: const pw.TextStyle(fontSize: 9.5, color: _muted)),
-                ],
-                if (gstin.isNotEmpty) ...[
-                  pw.SizedBox(height: 2),
-                  pw.Text('GSTIN: $gstin',
-                      style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: _ink)),
-                ],
-              ],
-            ),
-          ),
-          pw.SizedBox(width: 16),
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.end,
-            children: [
-              pw.Text(isTaxInvoice ? 'TAX INVOICE' : 'INVOICE',
-                  style: pw.TextStyle(
-                      fontSize: 16, fontWeight: pw.FontWeight.bold, color: _ink, letterSpacing: 1)),
-              pw.SizedBox(height: 8),
-              _kv('Invoice No', invoiceNumber(inv)),
-              _kv('Date', _fmtDate(inv['created_at'])),
-            ],
-          ),
-        ],
-      ),
-      pw.SizedBox(height: 12),
-      pw.Container(height: 2, color: _brand),
-    ]);
-  }
+    // Rows: [particulars, size, qty, amount]
+    final rows = <List<String>>[];
+    double tyreSum = 0;
+    final tyreRows = <List<String>>[];
+    for (final y in tyres) {
+      final qty = int.tryParse(y['quantity']?.toString() ?? '') ?? 0;
+      final price = _num(y['price']);
+      if (qty <= 0 || price <= 0) continue;
+      tyreSum += qty * price;
+      tyreRows.add([
+        [y['brand'], y['model'], y['pattern']]
+            .where((e) => e != null && e.toString().trim().isNotEmpty)
+            .join(' '),
+        _str(y['size'], ''),
+        '$qty',
+        _money2(qty * price),
+      ]);
+    }
+    if (tyreRows.isNotEmpty && tyreSum <= parts + 0.005) {
+      rows.addAll(tyreRows);
+      if (parts - tyreSum > 0.005) rows.add(['Other parts & consumables', '', '', _money2(parts - tyreSum)]);
+    } else if (parts > 0) {
+      // Parts charge was set by hand and doesn't match the tyre log.
+      final fitted = tyreRows.map((r) => '${r[0]} ${r[1]} x${r[2]}'.trim());
+      final detail = [...fitted, ...partsUsed].join('; ');
+      rows.add(['Parts & materials${detail.isEmpty ? '' : ' ($detail)'}', '', '', _money2(parts)]);
+    }
+    if (labour > 0) {
+      rows.add(['${_serviceLabel(inv['service_type']?.toString())} — labour (no GST)', '', '', _money2(labour)]);
+    }
 
-  static pw.Widget _parties(Map<String, dynamic> inv) {
-    final vehicleDesc = [inv['brand'], inv['model']]
-        .where((e) => e != null && e.toString().trim().isNotEmpty)
-        .join(' ');
-    final km = int.tryParse(inv['km_run']?.toString() ?? '') ?? 0;
-
-    pw.Widget box(String title, List<pw.Widget> children) => pw.Expanded(
-          child: pw.Container(
-            padding: const pw.EdgeInsets.all(10),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: _rule, width: 0.8),
-              borderRadius: pw.BorderRadius.circular(4),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [_label(title), pw.SizedBox(height: 4), ...children],
-            ),
-          ),
-        );
-
-    return pw.Row(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        box('Bill To', [
-          pw.Text(_str(inv['customer_name'], '—'),
-              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _ink)),
-          if (_str(inv['customer_phone'], '').isNotEmpty)
-            pw.Text('Phone: ${_fmtPhone(inv['customer_phone'].toString())}',
-                style: const pw.TextStyle(fontSize: 9.5, color: _ink)),
-        ]),
-        pw.SizedBox(width: 12),
-        box('Vehicle', [
-          pw.Text(_str(inv['vehicle_number'], '—').toUpperCase(),
-              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _ink)),
-          if (vehicleDesc.isNotEmpty)
-            pw.Text(vehicleDesc, style: const pw.TextStyle(fontSize: 9.5, color: _ink)),
-          if (km > 0)
-            pw.Text('Odometer: ${NumberFormat.decimalPattern('en_IN').format(km)} km',
-                style: const pw.TextStyle(fontSize: 9.5, color: _ink)),
-        ]),
-        pw.SizedBox(width: 12),
-        box('Job', [
-          pw.Text(_serviceLabel(inv['service_type']?.toString()),
-              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _ink)),
-          pw.Text('Received: ${_fmtDate(inv['job_created_at'])}',
-              style: const pw.TextStyle(fontSize: 9.5, color: _ink)),
-          if (inv['job_completed_at'] != null)
-            pw.Text('Completed: ${_fmtDate(inv['job_completed_at'])}',
-                style: const pw.TextStyle(fontSize: 9.5, color: _ink)),
-        ]),
-      ],
-    );
-  }
-
-  static pw.Widget _itemsTable(List<_Item> items) {
-    const head = pw.TextStyle(fontSize: 9, color: PdfColors.white);
+    const head = pw.TextStyle(fontSize: 9, color: _ink, fontWeight: pw.FontWeight.bold);
     const cell = pw.TextStyle(fontSize: 9.5, color: _ink);
-
-    pw.Widget c(String text, {pw.TextStyle style = cell, pw.TextAlign align = pw.TextAlign.left}) =>
+    pw.Widget c(String x, {pw.TextStyle style = cell, pw.TextAlign align = pw.TextAlign.left}) =>
         pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: pw.Text(text, style: style, textAlign: align),
+          padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+          child: pw.Text(x, style: style, textAlign: align),
         );
+    // Amount as two cells: Rs | Ps, split from a "1234.56" string.
+    List<pw.Widget> amt(String m, {pw.TextStyle style = cell}) {
+      final p = m.split('.');
+      return [c(p[0], style: style, align: pw.TextAlign.right), c(p[1], style: style)];
+    }
 
-    return pw.Table(
+    pw.TableRow sum(String label, double v, {pw.TextStyle style = cell}) => pw.TableRow(children: [
+          c(''), c(label, style: style), c(''), c(''), c(''), ...amt(_money2(v), style: style),
+        ]);
+
+    const minRows = 8;
+    final table = pw.Table(
+      border: pw.TableBorder.all(color: _ink, width: 0.7),
       columnWidths: const {
-        0: pw.FixedColumnWidth(24),
+        0: pw.FixedColumnWidth(30),
         1: pw.FlexColumnWidth(),
-        2: pw.FixedColumnWidth(36),
-        3: pw.FixedColumnWidth(78),
-        4: pw.FixedColumnWidth(84),
+        2: pw.FixedColumnWidth(64),
+        3: pw.FixedColumnWidth(40),
+        4: pw.FixedColumnWidth(40),
+        5: pw.FixedColumnWidth(62),
+        6: pw.FixedColumnWidth(30),
       },
-      border: const pw.TableBorder(
-        horizontalInside: pw.BorderSide(color: _rule, width: 0.6),
-        bottom: pw.BorderSide(color: _rule, width: 0.8),
-      ),
       children: [
-        pw.TableRow(
-          decoration: const pw.BoxDecoration(color: _brand),
-          children: [
-            c('#', style: head),
-            c('Description', style: head),
-            c('Qty', style: head, align: pw.TextAlign.right),
-            c('Rate', style: head, align: pw.TextAlign.right),
-            c('Amount', style: head, align: pw.TextAlign.right),
-          ],
-        ),
-        for (var i = 0; i < items.length; i++)
+        pw.TableRow(children: [
+          c('S.No', style: head),
+          c('Particulars', style: head),
+          c('Size', style: head),
+          c('Tyre', style: head, align: pw.TextAlign.center),
+          c('Tube', style: head, align: pw.TextAlign.center),
+          c('Amount Rs.', style: head, align: pw.TextAlign.right),
+          c('Ps.', style: head),
+        ]),
+        for (var i = 0; i < rows.length || i < minRows; i++)
           pw.TableRow(
-            decoration: i.isOdd ? const pw.BoxDecoration(color: _band) : null,
-            children: [
-              c('${i + 1}'),
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(items[i].description, style: cell),
-                    if (items[i].detail != null)
-                      pw.Text(items[i].detail!, style: const pw.TextStyle(fontSize: 8.5, color: _muted)),
-                  ],
-                ),
-              ),
-              c('${items[i].qty}', align: pw.TextAlign.right),
-              c(_money.format(items[i].rate), align: pw.TextAlign.right),
-              c(_money.format(items[i].amount), align: pw.TextAlign.right),
-            ],
-          ),
-        if (items.isEmpty)
-          pw.TableRow(children: [
-            c(''),
-            c('No chargeable items', style: const pw.TextStyle(fontSize: 9.5, color: _muted)),
-            c(''), c(''), c(''),
-          ]),
+              children: i < rows.length
+                  ? [
+                      c('${i + 1}'),
+                      c(rows[i][0]),
+                      c(rows[i][1]),
+                      c(rows[i][2], align: pw.TextAlign.center),
+                      c(''),
+                      ...amt(rows[i][3]),
+                    ]
+                  : [c(' '), c(''), c(''), c(''), c(''), c(''), c('')]),
+        sum('Amount', t.parts + labour),
+        if (pct > 0) sum('CGST ${_pct(pct / 2)}% (on parts)', t.cgst),
+        if (pct > 0) sum('SGST ${_pct(pct / 2)}% (on parts)', t.sgst),
+        if (discount > 0) sum('Less: Discount', -discount),
+        sum('Round Off', t.roundOff),
+        sum('Total Rs.', t.total, style: head),
       ],
     );
+
+    return [
+      _paperHeader(garage, garageName, _tyreTagline),
+      pw.SizedBox(height: 6),
+      pw.Center(
+          child: pw.Text('Cash Bill',
+              style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold, color: _ink))),
+      pw.SizedBox(height: 8),
+      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+        _kv('Invoice No', invoiceNumber(inv)),
+        _kv('Date', _fmtDate(inv['created_at'])),
+      ]),
+      pw.SizedBox(height: 4),
+      pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Expanded(child: _kv('To', _toLine(inv))),
+        _kv('Vehicle No', _str(inv['vehicle_number'], '—').toUpperCase()),
+      ]),
+      pw.SizedBox(height: 8),
+      table,
+      pw.SizedBox(height: 8),
+      pw.Text('Amount in words (Rupees): ${_amountInWords(t.total)}',
+          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _ink)),
+      pw.SizedBox(height: 28),
+      pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+        pw.Expanded(
+          child: pw.Text(
+            'Goods sold are covered against manufacturing defects as per the manufacturer\'s warranty.\n'
+            'Claims are subject to local jurisdiction.\n'
+            'Goods once sold will not be taken back.',
+            style: const pw.TextStyle(fontSize: 8, color: _muted),
+          ),
+        ),
+        pw.SizedBox(width: 20),
+        pw.Column(children: [
+          pw.Text('For $garageName',
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _ink)),
+          pw.SizedBox(height: 34),
+          pw.Text('Authorised Signatory', style: const pw.TextStyle(fontSize: 8.5, color: _muted)),
+        ]),
+      ]),
+    ];
   }
 
-  static pw.Widget _totals({
-    required double subTotal,
-    required double gstPct,
-    required double gst,
-    required double discount,
-    required double total,
-    required bool splitGst,
-  }) {
-    pw.Widget row(String label, String value, {bool strong = false}) => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 3),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(label,
-                  style: pw.TextStyle(
-                      fontSize: strong ? 11.5 : 9.5,
-                      fontWeight: strong ? pw.FontWeight.bold : pw.FontWeight.normal,
-                      color: strong ? _ink : _muted)),
-              pw.Text(value,
-                  style: pw.TextStyle(
-                      fontSize: strong ? 11.5 : 9.5,
-                      fontWeight: strong ? pw.FontWeight.bold : pw.FontWeight.normal,
-                      color: _ink)),
-            ],
-          ),
-        );
-
-    // Intra-state supply: GST splits equally into CGST + SGST. The halves are
-    // derived from the stored GST amount so they always sum to it exactly.
-    final cgst = (gst / 2 * 100).roundToDouble() / 100;
-    final sgst = gst - cgst;
-    final half = _pct(gstPct / 2);
-
-    return pw.Column(children: [
-      row('Subtotal', _money.format(subTotal)),
-      if (splitGst) ...[
-        row('CGST @ $half%', _money.format(cgst)),
-        row('SGST @ $half%', _money.format(sgst)),
-      ] else
-        row('GST @ ${_pct(gstPct)}%', _money.format(gst)),
-      if (discount > 0) row('Less: Discount', '− ${_money.format(discount)}'),
-      pw.Container(
-        margin: const pw.EdgeInsets.only(top: 4),
-        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        color: _band,
-        child: row('Grand Total', _money.format(total), strong: true),
-      ),
-    ]);
-  }
-
-  static pw.Widget _signOff(String garageName) => pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.end,
-        children: [
-          pw.Expanded(
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text('Thank you for your business!',
-                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _ink)),
-                pw.SizedBox(height: 2),
-                pw.Text('This is a computer-generated invoice.',
-                    style: const pw.TextStyle(fontSize: 8.5, color: _muted)),
-              ],
-            ),
-          ),
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              pw.Text('For $garageName', style: const pw.TextStyle(fontSize: 9.5, color: _ink)),
-              pw.SizedBox(height: 32),
-              pw.Container(width: 140, height: 0.8, color: _ink),
-              pw.SizedBox(height: 3),
-              pw.Text('Authorised Signatory', style: const pw.TextStyle(fontSize: 8.5, color: _muted)),
-            ],
-          ),
-        ],
-      );
-
-  // ── Line items ───────────────────────────────────────────────────────────
-
-  static List<_Item> _lineItems({
-    required String service,
+  /// Totals of a tyre bill, in rupees (each figure rounded to paise). GST
+  /// applies to [parts] only (half as CGST, half as SGST); [labour] is added
+  /// without GST; the total is rounded to the nearest rupee.
+  static ({double parts, double cgst, double sgst, double roundOff, double total}) tyreTotals({
     required double labour,
     required double parts,
-    required List<Map> tyres,
-    required List<String> partsUsed,
+    required double discount,
+    required double gstPercent,
   }) {
-    final items = <_Item>[];
-    if (labour > 0) {
-      items.add(_Item('$service — labour / service charges', 1, labour));
-    }
-
-    final tyreItems = <_Item>[];
-    for (final t in tyres) {
-      final qty   = int.tryParse(t['quantity']?.toString() ?? '') ?? 0;
-      final price = _num(t['price']);
-      if (qty <= 0 || price <= 0) continue;
-      final name = [t['brand'], t['model'], t['pattern'], t['size']]
-          .where((e) => e != null && e.toString().trim().isNotEmpty)
-          .join(' ');
-      tyreItems.add(_Item('Tyre — $name', qty, price));
-    }
-    final tyreSum = tyreItems.fold<double>(0, (s, i) => s + i.amount);
-    final partsDetail = partsUsed.isEmpty ? null : partsUsed.join('; ');
-
-    if (tyreItems.isNotEmpty && tyreSum <= parts + 0.005) {
-      items.addAll(tyreItems);
-      final rest = parts - tyreSum;
-      if (rest > 0.005) {
-        items.add(_Item('Other parts & consumables', 1, rest, detail: partsDetail));
-      }
-    } else if (parts > 0) {
-      // Parts charge was set by hand and doesn't match the tyre log — show it
-      // as one line, naming what was fitted, so the total still reconciles.
-      final fitted = tyreItems.map((i) => '${i.description.replaceFirst('Tyre — ', '')} ×${i.qty}');
-      final detail = [...fitted, ...partsUsed].join('; ');
-      items.add(_Item('Parts & materials', 1, parts, detail: detail.isEmpty ? null : detail));
-    }
-    return items;
+    double r2(double v) => (v * 100).round() / 100;
+    final half = r2(parts * gstPercent / 200);
+    final raw = r2(labour + parts + half * 2 - discount);
+    final total = raw.roundToDouble();
+    return (parts: parts, cgst: half, sgst: half, roundOff: r2(total - raw), total: total);
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  // ── Service bill ("LABOUR BILL") ─────────────────────────────────────────
 
-  static pw.Widget _label(String text) => pw.Text(text.toUpperCase(),
-      style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _muted, letterSpacing: 0.8));
+  static List<pw.Widget> _serviceBill(Map<String, dynamic> inv, Map<String, dynamic> garage,
+      String garageName, List<String> partsUsed) {
+    final labour   = _num(inv['labour_charge']);
+    final parts    = _num(inv['parts_charge']);
+    final discount = _num(inv['discount']);
+    // No GST on this bill: total = labour + parts - discount.
+    final total = serviceTotal(labour: labour, parts: parts, discount: discount);
+
+    final rows = <List<String>>[
+      if (labour > 0) [_serviceLabel(inv['service_type']?.toString()), '1', _money2(labour)],
+      if (parts > 0)
+        [partsUsed.isEmpty ? 'Parts & materials' : 'Parts: ${partsUsed.join('; ')}', '1', _money2(parts)],
+    ];
+    const head = pw.TextStyle(fontSize: 9.5, color: _ink, fontWeight: pw.FontWeight.bold);
+    const cell = pw.TextStyle(fontSize: 10, color: _ink);
+    pw.Widget c(String x, {pw.TextStyle style = cell, pw.TextAlign align = pw.TextAlign.left}) =>
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: pw.Text(x, style: style, textAlign: align),
+        );
+    final model = [inv['brand'], inv['model']]
+        .where((e) => e != null && e.toString().trim().isNotEmpty)
+        .join(' ');
+
+    return [
+      _paperHeader(garage, garageName, _serviceTagline),
+      pw.SizedBox(height: 6),
+      pw.Center(
+          child: pw.Text('LABOUR BILL',
+              style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold, color: _ink))),
+      pw.SizedBox(height: 8),
+      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+        _kv('No.', invoiceNumber(inv)),
+        _kv('Date', _fmtDate(inv['created_at'])),
+      ]),
+      pw.SizedBox(height: 4),
+      _kv('To', _toLine(inv)),
+      pw.SizedBox(height: 4),
+      pw.Row(children: [
+        _kv('Veh.No', _str(inv['vehicle_number'], '—').toUpperCase()),
+        pw.SizedBox(width: 30),
+        _kv('Model', model.isEmpty ? '—' : model),
+      ]),
+      pw.SizedBox(height: 8),
+      pw.Table(
+        border: pw.TableBorder.all(color: _ink, width: 0.7),
+        columnWidths: const {
+          0: pw.FlexColumnWidth(),
+          1: pw.FixedColumnWidth(50),
+          2: pw.FixedColumnWidth(90),
+        },
+        children: [
+          pw.TableRow(children: [
+            c('Nature of Works', style: head),
+            c('Qty', style: head, align: pw.TextAlign.center),
+            c('Amount', style: head, align: pw.TextAlign.right),
+          ]),
+          for (var i = 0; i < rows.length || i < 6; i++)
+            pw.TableRow(
+                children: i < rows.length
+                    ? [
+                        c(rows[i][0]),
+                        c(rows[i][1], align: pw.TextAlign.center),
+                        c(rows[i][2], align: pw.TextAlign.right),
+                      ]
+                    : [c(' '), c(''), c('')]),
+          if (discount > 0)
+            pw.TableRow(children: [
+              c('Less: Discount'), c(''), c('-${_money2(discount)}', align: pw.TextAlign.right)]),
+          pw.TableRow(children: [
+            c('Total', style: head), c(''), c(_money2(total), style: head, align: pw.TextAlign.right)]),
+        ],
+      ),
+      pw.SizedBox(height: 8),
+      pw.Text('Rupees in words: ${_amountInWords(total)}',
+          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _ink)),
+      pw.SizedBox(height: 28),
+      pw.Align(
+        alignment: pw.Alignment.centerRight,
+        child: pw.Column(children: [
+          pw.Text('For $garageName',
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _ink)),
+          pw.SizedBox(height: 34),
+          pw.Text('Authorised Signatory', style: const pw.TextStyle(fontSize: 8.5, color: _muted)),
+        ]),
+      ),
+    ];
+  }
+
+  static double serviceTotal({required double labour, required double parts, required double discount}) =>
+      ((labour + parts - discount) * 100).round() / 100;
+
+  // ── Shared pieces ────────────────────────────────────────────────────────
+
+  static pw.Widget _paperHeader(Map<String, dynamic> garage, String name, String tagline) {
+    final address = _str(garage['address'], '');
+    final phone   = _str(garage['phone'], '');
+    final gstin   = _str(garage['gstin'], '');
+    pw.Widget line(String t, {double size = 9, bool b = false}) => pw.Text(t,
+        textAlign: pw.TextAlign.center,
+        style: pw.TextStyle(
+            fontSize: size, color: _ink, fontWeight: b ? pw.FontWeight.bold : pw.FontWeight.normal));
+    return pw.Container(
+      padding: const pw.EdgeInsets.only(bottom: 8),
+      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: _ink, width: 1.5))),
+      width: double.infinity,
+      child: pw.Column(children: [
+        line(name, size: 20, b: true),
+        pw.SizedBox(height: 3),
+        line(tagline, size: 8.5),
+        if (address.isNotEmpty) line(address),
+        if (phone.isNotEmpty) line('Phone: $phone'),
+        if (gstin.isNotEmpty) line('GSTIN: $gstin', b: true),
+      ]),
+    );
+  }
+
+  static String _toLine(Map<String, dynamic> inv) {
+    final phone = _str(inv['customer_phone'], '');
+    return '${_str(inv['customer_name'], '—')}${phone.isEmpty ? '' : '  (${_fmtPhone(phone)})'}';
+  }
+
+  static String _money2(double v) => v.toStringAsFixed(2);
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
 
   static pw.Widget _kv(String k, String v) => pw.Padding(
         padding: const pw.EdgeInsets.only(top: 2),
@@ -473,16 +379,6 @@ class InvoicePdf {
         .split('_')
         .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
         .join(' ');
-  }
-
-  static String? _paymentLabel(dynamic method) {
-    switch (method?.toString()) {
-      case 'cash':        return 'Cash';
-      case 'upi':         return 'UPI';
-      case 'card':        return 'Card';
-      case 'net_banking': return 'Net Banking';
-      default:            return null;
-    }
   }
 
   /// Indian-system words, e.g. 123456.5 → "Rupees One Lakh Twenty Three
@@ -526,13 +422,4 @@ class InvoicePdf {
     if (n > 0) parts.add(below1000(n));
     return parts.join(' ');
   }
-}
-
-class _Item {
-  _Item(this.description, this.qty, this.rate, {this.detail});
-  final String description;
-  final int qty;
-  final double rate;
-  final String? detail;
-  double get amount => qty * rate;
 }

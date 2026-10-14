@@ -10,7 +10,9 @@ router.get('/summary',          reportController.getAdminSummary);
 router.get('/unpaid',           reportController.getUnpaidInvoices);
 router.get('/new-customers',       reportController.getNewCustomers);
 router.get('/revenue-by-category', reportController.getRevenueByCategory);
+router.get('/payment-modes', reportController.getPaymentModes);
 router.get('/tyre-sales',          reportController.getTyreSales);
+router.get('/tyre-purchases',      reportController.getTyrePurchases);
 router.get('/revenue-trend',    reportController.getRevenueTrend);
 
 module.exports = router;

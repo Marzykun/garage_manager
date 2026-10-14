@@ -70,7 +70,7 @@ class _TyreStockScreenState extends State<TyreStockScreen> {
   }
 
   void _openForm({Map<String, dynamic>? tyre}) async {
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showModalBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
@@ -79,7 +79,11 @@ class _TyreStockScreenState extends State<TyreStockScreen> {
       ),
       builder: (_) => _TyreForm(apiService: widget.apiService, existing: tyre),
     );
-    if (saved == true) _load();
+    if (saved == null) return;
+    _load();
+    if (saved is String && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(saved)));
+    }
   }
 
   @override
@@ -103,6 +107,13 @@ class _TyreStockScreenState extends State<TyreStockScreen> {
             style: TextButton.styleFrom(foregroundColor: Colors.white),
             icon: const Icon(Icons.compare_arrows_rounded, size: 20),
             label: const Text('Compare'),
+          ),
+          IconButton(
+            tooltip: 'Purchase history',
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => _PurchaseHistoryScreen(apiService: widget.apiService),
+            )),
           ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
@@ -294,6 +305,8 @@ class _TyreFormState extends State<_TyreForm> {
   final _qtyCtrl    = TextEditingController();
   final _priceCtrl  = TextEditingController();
   final _offerCtrl  = TextEditingController();
+  final _costCtrl   = TextEditingController();
+  final _dealerCtrl = TextEditingController();
   bool  _saving     = false;
 
   bool get _isEdit => widget.existing != null;
@@ -318,7 +331,7 @@ class _TyreFormState extends State<_TyreForm> {
   void dispose() {
     _brandCtrl.dispose(); _modelCtrl.dispose(); _sizeCtrl.dispose(); _patternCtrl.dispose();
     _vTypeCtrl.dispose(); _qtyCtrl.dispose(); _priceCtrl.dispose();
-    _offerCtrl.dispose();
+    _offerCtrl.dispose(); _costCtrl.dispose(); _dealerCtrl.dispose();
     super.dispose();
   }
 
@@ -337,6 +350,7 @@ class _TyreFormState extends State<_TyreForm> {
       final qty   = int.tryParse(_qtyCtrl.text.trim()) ?? 0;
       final price = double.tryParse(_priceCtrl.text.trim());
 
+      Object result = true;
       if (_isEdit) {
         await widget.apiService.updateTyre(
           widget.existing!['id'].toString(),
@@ -351,7 +365,9 @@ class _TyreFormState extends State<_TyreForm> {
           offer:       _offerCtrl.text.trim().isEmpty ? null : _offerCtrl.text.trim(),
         );
       } else {
-        await widget.apiService.addTyre(
+        final res = await widget.apiService.addTyre(
+          unitCost:    double.tryParse(_costCtrl.text.trim()),
+          dealer:      _dealerCtrl.text.trim(),
           brand:       brand,
           size:        size,
           model:       _modelCtrl.text.trim().isEmpty ? null : _modelCtrl.text.trim(),
@@ -361,9 +377,15 @@ class _TyreFormState extends State<_TyreForm> {
           price:       price,
           offer:       _offerCtrl.text.trim().isEmpty ? null : _offerCtrl.text.trim(),
         );
+        if (res is Map && res['merged'] == true) {
+          final t = (res['data'] as Map?) ?? {};
+          final name = [t['brand'], t['model'], t['size']]
+              .where((e) => e != null && e.toString().trim().isNotEmpty).join(' ');
+          result = 'Added $qty to existing $name (now ${t['quantity']})';
+        }
       }
 
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) Navigator.pop(context, result);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -431,6 +453,14 @@ class _TyreFormState extends State<_TyreForm> {
 
             // Offer
             _field(_offerCtrl, 'Offer / Note', hint: 'e.g. Buy 2 Get 10% off'),
+            if (!_isEdit) ...[
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(child: _field(_dealerCtrl, 'Dealer', hint: 'optional')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(_costCtrl, 'Cost price / tyre (₹)', hint: 'optional', isDecimal: true)),
+              ]),
+            ],
             const SizedBox(height: 24),
 
             // Save button
@@ -480,6 +510,50 @@ class _TyreFormState extends State<_TyreForm> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _colorBorder)),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _colorBorder)),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _colorPrimary, width: 1.5)),
+      ),
+    );
+  }
+}
+
+
+class _PurchaseHistoryScreen extends StatelessWidget {
+  const _PurchaseHistoryScreen({required this.apiService});
+  final ApiService apiService;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Tyres Bought (last 50)')),
+      body: FutureBuilder<List<dynamic>>(
+        future: apiService.getRecentTyrePurchases(),
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) return const Center(child: Text('Failed to load purchases.'));
+          final rows = snap.data ?? [];
+          if (rows.isEmpty) return const Center(child: Text('No purchases logged yet.'));
+          return ListView.separated(
+            itemCount: rows.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, i) {
+              final r = rows[i] as Map;
+              final d = DateTime.tryParse(r['created_at']?.toString() ?? '')?.toLocal();
+              final cost = double.tryParse(r['unit_cost']?.toString() ?? '');
+              return ListTile(
+                title: Text([r['brand'], r['name'], r['size']]
+                    .where((e) => e != null && e.toString().isNotEmpty).join(' ')),
+                subtitle: Text([
+                  if (d != null) '${d.day}/${d.month}/${d.year}',
+                  if (r['dealer'] != null) r['dealer'].toString(),
+                  if (cost != null) '₹${cost.toStringAsFixed(0)} each',
+                ].join(' · ')),
+                trailing: Text('×${r['quantity']}',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+              );
+            },
+          );
+        },
       ),
     );
   }

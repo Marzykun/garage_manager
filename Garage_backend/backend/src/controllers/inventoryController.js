@@ -23,14 +23,15 @@ const addItem = async (req, res, next) => {
     const item = await inventoryModel.addItem(
       name,
       category,
-      quantity || 0,
-      unit || 'pcs',
-      min_stock || 5
+      Math.max(parseInt(quantity, 10) || 0, 0),
+      unit || null,
+      min_stock || null
     );
 
-    res.status(201).json({
+    res.status(item.merged ? 200 : 201).json({
       success: true,
-      message: 'Item added to inventory',
+      merged: item.merged,
+      message: item.merged ? 'Added to existing item' : 'Item added to inventory',
       data: item,
     });
 

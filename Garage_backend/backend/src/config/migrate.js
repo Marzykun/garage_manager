@@ -5,6 +5,21 @@ const pool = require('./db');
 // restart — no manual psql. Fresh installs already have these from schema.sql,
 // making every statement below a no-op.
 const migrate = async () => {
+  // Log of tyres bought from the dealer
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tyre_purchases (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tyre_id    UUID REFERENCES tyre_stock(id) ON DELETE SET NULL,
+      brand      TEXT,
+      name       TEXT,
+      size       TEXT,
+      quantity   INTEGER NOT NULL,
+      unit_cost  NUMERIC(10,2),
+      dealer     TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+
   // Tyre tread pattern / design name (e.g. "ZLX", "Wanderer Street")
   await pool.query(`ALTER TABLE tyre_stock ADD COLUMN IF NOT EXISTS pattern TEXT`);
 
@@ -42,6 +57,19 @@ const migrate = async () => {
         );
       END IF;
     END $$;
+  `);
+
+  // Inventory parts picked on a job log entry
+  await pool.query(`
+CREATE TABLE IF NOT EXISTS job_parts_used (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_card_id       UUID REFERENCES job_cards(id) ON DELETE CASCADE,
+  service_detail_id UUID REFERENCES service_details(id) ON DELETE CASCADE,
+  inventory_id      UUID REFERENCES inventory(id) ON DELETE SET NULL,
+  quantity          INTEGER NOT NULL,
+  name              TEXT NOT NULL,
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
   `);
 };
 

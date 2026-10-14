@@ -263,7 +263,24 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
       await widget.apiService.updateJobStatus(id, currentStatus: jobStatusValue(job));
       await _loadJobs();
     } catch (error) {
-      _showSnack(error is ApiException ? error.toString() : 'Failed to update status.');
+      if (error is ApiException && error.statusCode == 409) {
+        if (mounted) {
+          final open = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Invoice not generated'),
+              content: const Text('Generate the invoice first, then mark the job as completed.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Close')),
+                TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Open Billing')),
+              ],
+            ),
+          );
+          if (open == true) _openBilling(job);
+        }
+      } else {
+        _showSnack(error is ApiException ? error.toString() : 'Failed to update status.');
+      }
     } finally {
       if (mounted) setState(() => _updatingJobId = null);
     }

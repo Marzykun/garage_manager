@@ -115,6 +115,19 @@ CREATE TABLE tyre_stock (
   created_at   TIMESTAMPTZ DEFAULT now()
 );
 
+-- TYRE PURCHASES (stock bought from the dealer; one row per "Add Tyre")
+CREATE TABLE tyre_purchases (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tyre_id    UUID REFERENCES tyre_stock(id) ON DELETE SET NULL,
+  brand      TEXT,
+  name       TEXT,
+  size       TEXT,
+  quantity   INTEGER NOT NULL,
+  unit_cost  NUMERIC(10,2),
+  dealer     TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- APPOINTMENTS (WhatsApp booking)
 CREATE TYPE appointment_status AS ENUM ('pending', 'accepted', 'rejected');
 CREATE TABLE appointments (
@@ -204,6 +217,17 @@ CREATE TABLE service_details (
   remarks      TEXT,
   parts_used   TEXT,
   created_at   TIMESTAMPTZ DEFAULT now()
+);
+
+-- INVENTORY PARTS USED ON A JOB (deducted from inventory when the log entry is saved)
+CREATE TABLE IF NOT EXISTS job_parts_used (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_card_id       UUID REFERENCES job_cards(id) ON DELETE CASCADE,
+  service_detail_id UUID REFERENCES service_details(id) ON DELETE CASCADE,
+  inventory_id      UUID REFERENCES inventory(id) ON DELETE SET NULL,
+  quantity          INTEGER NOT NULL,
+  name              TEXT NOT NULL,
+  created_at        TIMESTAMPTZ DEFAULT now()
 );
 
 -- TYRE CHANGE DETAILS (tyres fitted on a job — decrements tyre_stock)

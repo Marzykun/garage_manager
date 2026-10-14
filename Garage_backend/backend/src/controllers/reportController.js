@@ -192,12 +192,17 @@ const rangeReport = (fn, defaultRange = 'today') => async (req, res, next) => {
 const getNewCustomers = rangeReport(reportModel.getNewCustomers);
 // GET /api/reports/revenue-by-category?range=
 const getRevenueByCategory = rangeReport(reportModel.getRevenueByCategory);
+// GET /api/reports/payment-modes?range=
+const getPaymentModes = rangeReport(reportModel.getPaymentModes);
 // GET /api/reports/tyre-sales?range=
 const getTyreSales = rangeReport(reportModel.getTyreSales);
+const getTyrePurchases = rangeReport(reportModel.getTyrePurchases);
 
 module.exports = {
+  getTyrePurchases,
   getNewCustomers,
   getRevenueByCategory,
+  getPaymentModes,
   getTyreSales,
   getDailyReport,
   getServiceAnalysis,

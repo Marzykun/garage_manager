@@ -26,16 +26,21 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   String _range = 'today';
-  bool _loading = true;
+  bool _loading = true;      // first load only: nothing to show yet
+  bool _refreshing = false;  // range/pull refresh: keep old data on screen
+  int _reqId = 0;            // drops responses from superseded loads
   String? _error;
 
   Map<String, dynamic>? _summary;
   Map<String, dynamic>? _daily;
+  List<dynamic> _newCustomers = [];
   List<dynamic> _services = [];
   List<dynamic> _unpaid = [];
   List<dynamic> _trend = [];
   List<dynamic> _categories = [];
   Map<String, dynamic> _tyres = {};
+  Map<String, dynamic> _payModes = {};
+  Map<String, dynamic> _bought = {};
   bool _showAllTyres = false;
 
   @override
@@ -45,8 +50,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    final id = ++_reqId;
+    setState(() { _refreshing = true; _error = null; });
     try {
+      // All independent; run together so a range change costs one round trip.
       final results = await Future.wait([
         widget.apiService.getAdminSummary(),
         widget.apiService.getDailyReport(_range),
@@ -55,19 +62,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
         widget.apiService.getRevenueTrend(),
         widget.apiService.getRevenueByCategory(_range),
         widget.apiService.getTyreSales(_range),
+        widget.apiService.getPaymentModes(_range),
+        widget.apiService.getNewCustomers(_range),
+        widget.apiService.getTyrePurchases(_range),
       ]);
+      if (!mounted || id != _reqId) return;
 
-      _summary  = (results[0] as Map<String, dynamic>?)?['data'];
-      _daily    = (results[1] as Map<String, dynamic>?)?['data'];
-      _services = ((results[2] as Map<String, dynamic>?)?['data'] as List?) ?? [];
-      _unpaid   = ((results[3] as Map<String, dynamic>?)?['data'] as List?) ?? [];
-      _trend    = ((results[4] as Map<String, dynamic>?)?['data'] as List?) ?? [];
-      _categories = results[5] as List<dynamic>;
-      _tyres      = results[6] as Map<String, dynamic>;
+      setState(() {
+        _summary  = (results[0] as Map<String, dynamic>?)?['data'];
+        _daily    = (results[1] as Map<String, dynamic>?)?['data'];
+        _services = ((results[2] as Map<String, dynamic>?)?['data'] as List?) ?? [];
+        _unpaid   = ((results[3] as Map<String, dynamic>?)?['data'] as List?) ?? [];
+        _trend    = ((results[4] as Map<String, dynamic>?)?['data'] as List?) ?? [];
+        _categories = results[5] as List<dynamic>;
+        _tyres      = results[6] as Map<String, dynamic>;
+        _payModes   = results[7] as Map<String, dynamic>;
+        _newCustomers = results[8] as List<dynamic>;
+        _bought       = results[9] as Map<String, dynamic>;
+      });
     } catch (e) {
-      _error = e is ApiException ? e.toString() : 'Failed to load reports.';
+      if (!mounted || id != _reqId) return;
+      setState(() => _error = e is ApiException ? e.toString() : 'Failed to load reports.');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && id == _reqId) setState(() { _loading = false; _refreshing = false; });
     }
   }
 
@@ -96,6 +113,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       RangeChips(selected: _range, onSelect: (r) { setState(() => _range = r); _load(); }),
+                      if (_refreshing) ...[
+                        const SizedBox(height: 8),
+                        const LinearProgressIndicator(minHeight: 2, color: _colorPrimary, backgroundColor: _colorInputBg),
+                      ],
                       const SizedBox(height: 16),
                       _buildSummarySection(),
                       const SizedBox(height: 16),
@@ -103,7 +124,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       const SizedBox(height: 16),
                       _buildRevenueByCategory(),
                       const SizedBox(height: 16),
+                      _buildPaymentModes(),
+                      const SizedBox(height: 16),
                       _buildTyreSales(),
+                      const SizedBox(height: 20),
+                      _buildTyresBought(),
                       const SizedBox(height: 16),
                       _buildServiceBreakdown(),
                       const SizedBox(height: 16),
@@ -116,12 +141,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 );
   }
 
-  // ── Live summary (always today) ──────────────────────────────────────────
+  // ── Live overview (follows the selected range; Pending Dues is always the total outstanding) ──
 
   Widget _buildSummarySection() {
-    final jobs     = _summary?['jobs']     as Map<String, dynamic>? ?? {};
-    final revenue  = _summary?['revenue']  as Map<String, dynamic>? ?? {};
-    final customers = _summary?['customers'] as Map<String, dynamic>? ?? {};
+    final revenue = _daily?['revenue'] as Map<String, dynamic>? ?? {};
+    final jobs    = _daily?['jobs']    as Map<String, dynamic>? ?? {};
+    final pendingRevenue = _summary?['revenue']?['pending_revenue'];
+    final isToday = _range == 'today';
+    final rangeName = _rangeLabel(_range);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -129,16 +156,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const _SectionTitle('Live Overview'),
         const SizedBox(height: 10),
         Row(children: [
-          Expanded(child: _StatCard(label: 'Revenue Today',   value: _fmt(revenue['revenue_today'], currency: true),   color: _colorSuccess,  icon: Icons.currency_rupee_rounded)),
+          Expanded(child: _StatCard(label: isToday ? 'Revenue Today' : 'Revenue · $rangeName', value: _fmt(revenue['total_revenue'], currency: true), color: _colorSuccess,  icon: Icons.currency_rupee_rounded)),
           const SizedBox(width: 12),
-          Expanded(child: _StatCard(label: 'Pending Dues',    value: _fmt(revenue['pending_revenue'], currency: true),  color: _colorWarning,  icon: Icons.pending_outlined,
+          Expanded(child: _StatCard(label: 'Pending Dues',    value: _fmt(pendingRevenue, currency: true),  color: _colorWarning,  icon: Icons.pending_outlined,
               onTap: _openPendingDues)),
         ]),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: _StatCard(label: 'New Jobs Today',  value: _fmt(jobs['new_jobs_today']),      color: _colorPrimary,  icon: Icons.receipt_long_outlined)),
+          Expanded(child: _StatCard(label: isToday ? 'New Jobs Today' : 'New Jobs · $rangeName', value: _fmt(jobs['total_jobs']), color: _colorPrimary,  icon: Icons.receipt_long_outlined)),
           const SizedBox(width: 12),
-          Expanded(child: _StatCard(label: 'New Customers',   value: _fmt(customers['new_customers_today']), color: _colorInfo,    icon: Icons.person_add_outlined,
+          Expanded(child: _StatCard(label: isToday ? 'New Customers' : 'New Customers · $rangeName', value: _fmt(_newCustomers.length), color: _colorInfo,    icon: Icons.person_add_outlined,
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => NewCustomersScreen(apiService: widget.apiService),
               )))),
@@ -215,6 +242,123 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _colorWarning)),
               ),
             ),
+          ],
+        ]),
+      ],
+    );
+  }
+
+  // ── Payments by mode ─────────────────────────────────────────────────────
+
+  static const _modeLabels = {
+    'cash': ('Cash', Icons.payments_outlined),
+    'upi': ('UPI', Icons.qr_code_2),
+    'card': ('Card', Icons.credit_card),
+    'net_banking': ('Net Banking', Icons.account_balance_outlined),
+    'unknown': ('Not recorded', Icons.help_outline),
+  };
+
+  Widget _buildPaymentModes() {
+    final methods = ((_payModes['methods'] as List?) ?? []).cast<Map>();
+    final unpaid  = (_payModes['unpaid'] as Map?) ?? {};
+    final unpaidCount = int.tryParse(unpaid['count']?.toString() ?? '') ?? 0;
+    final totalCount  = int.tryParse(_payModes['total_count']?.toString() ?? '') ?? 0;
+    final totalAmount = double.tryParse(_payModes['total_amount']?.toString() ?? '') ?? 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle('Payments by Mode · ${_rangeLabel(_range)}'),
+        const SizedBox(height: 10),
+        _InfoCard(children: [
+          if (methods.isEmpty)
+            const Text('No paid bills in this period.',
+                style: TextStyle(fontSize: 13, color: _colorSubtext)),
+          for (final m in methods)
+            Builder(builder: (_) {
+              final info = _modeLabels[m['method']] ?? (m['method'].toString(), Icons.payments_outlined);
+              final amount = double.tryParse(m['amount'].toString()) ?? 0;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Icon(info.$2, size: 18, color: _colorPrimary),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(info.$1,
+                        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: _colorHeading))),
+                    Text('${m['count']} ${m['count'].toString() == '1' ? 'bill' : 'bills'}', style: const TextStyle(fontSize: 12, color: _colorSubtext)),
+                    SizedBox(width: 90, child: Text(_rupees(amount), textAlign: TextAlign.right,
+                        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorHeading))),
+                  ]),
+                  const SizedBox(height: 4),
+                  ClipRRect(
+                    borderRadius: const BorderRadius.all(Radius.circular(4)),
+                    child: LinearProgressIndicator(
+                      value: totalAmount > 0 ? amount / totalAmount : 0,
+                      backgroundColor: _colorInputBg,
+                      color: _colorPrimary,
+                      minHeight: 6,
+                    ),
+                  ),
+                ]),
+              );
+            }),
+          if (methods.isNotEmpty) ...[
+            const Divider(height: 20),
+            Row(children: [
+              Expanded(child: Text('Total · $totalCount paid bills',
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorHeading))),
+              Text(_rupees(totalAmount),
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorSuccess)),
+            ]),
+          ],
+          if (unpaidCount > 0) ...[
+            const SizedBox(height: 6),
+            Text('$unpaidCount bills unpaid · ${_rupees(double.tryParse(unpaid['amount'].toString()) ?? 0)}',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _colorWarning)),
+          ],
+        ]),
+      ],
+    );
+  }
+
+  // ── Tyres bought from the dealer ─────────────────────────────────────────
+
+  Widget _buildTyresBought() {
+    final rows  = ((_bought['rows'] as List?) ?? []).cast<Map>();
+    final count = int.tryParse(_bought['total_tyres']?.toString() ?? '') ?? 0;
+    final cost  = double.tryParse(_bought['total_cost']?.toString() ?? '') ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle('Tyres Bought · ${_rangeLabel(_range)}'),
+        const SizedBox(height: 10),
+        _InfoCard(children: [
+          Row(children: [
+            Expanded(child: _MiniStat(label: 'Tyres bought', value: '$count')),
+            Expanded(child: _MiniStat(label: 'Cost (where entered)', value: _rupees(cost))),
+          ]),
+          if (rows.isEmpty) ...[
+            const SizedBox(height: 10),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('No tyres bought in this period.',
+                  style: TextStyle(fontSize: 13, color: _colorSubtext)),
+            ),
+          ] else ...[
+            const Divider(height: 24),
+            for (final r in rows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [
+                  Expanded(
+                    child: Text('${r['brand'] ?? ''} ${r['size'] ?? ''}'.trim(),
+                        style: const TextStyle(fontSize: 13, color: _colorBodyText)),
+                  ),
+                  Text('×${r['tyres']}  ${_rupees(double.tryParse(r['cost'].toString()) ?? 0)}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _colorHeading)),
+                ]),
+              ),
           ],
         ]),
       ],
@@ -565,7 +709,9 @@ class _StatCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: _colorSubtext)),
+            Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: _colorSubtext))),
+            const SizedBox(width: 6),
             Icon(icon, size: 16, color: color),
           ]),
           const SizedBox(height: 8),

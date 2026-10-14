@@ -3,7 +3,30 @@
  For a phone that already has Garage Manager set up and working.
 ==============================================================
 
+!! IMPORTANT: DO PART 1 (UPDATE THE SERVER) AND PART 3 (RESTART)
+!! BEFORE USING THE NEW APP. If you install the app but skip the
+!! server update, Reports and other screens show "HTTP 404 ...
+!! Cannot GET /api/reports/..." errors.
+
 WHAT THIS UPDATE ADDS
+ - NEW BILL FORMATS. Jobs with tyres print a "Cash Bill" (like the
+   paper tyre bill) with CGST 9% + SGST 9% added on the tyre amount.
+   Jobs without tyres print a "LABOUR BILL" with NO GST. Labour on a
+   tyre bill carries no GST.
+ - Reports: "Payments by Mode" (how many bills paid by Cash / UPI /
+   Card ...), and "Tyres Bought" (how many tyres were bought from
+   the dealer, with cost)
+ - Reports: the Live Overview cards now follow Today / 7 Days /
+   30 Days
+ - A job cannot be marked Completed until its invoice is generated
+   (the app says "Invoice not generated" and offers Open Billing)
+ - Adding a tyre or a part that already exists ADDS to the existing
+   stock instead of making a second card
+ - Add Tyre has optional Dealer and Cost price; the history icon on
+   the Tyre Stock screen lists everything bought
+ - Full Service log entry: pick parts from the inventory and they
+   are deducted from stock. Removing the job puts them back
+ - Service Breakdown no longer counts removed jobs
  - "Start Server" button on the login screen (turns the server on
    without opening Termux)
  - Print / share a proper invoice (with garage name, address,
@@ -25,7 +48,6 @@ WHAT THIS UPDATE ADDS
    Details, and Compare Tyres (one size, all brands, price + stock)
  - Reports: tap Pending Dues or New Customers for the full list,
    Revenue by Category, Tyre Sales summary (day / week / month)
- - GST % set in Settings is now used on bills (was always 18%)
  - Fixed: tapping the status button on a job could make it vanish;
    jobs are now completed from ... > Mark as Completed
  - Removing a job puts its logged tyres back in stock
@@ -134,9 +156,10 @@ INVOICE:
  4. "Print Invoice" prints it (or choose "Save as PDF").
     "Share PDF" sends it on WhatsApp.
 
-CHECK GST (owner):
- - Settings > Garage Info > GST % — make sure it is the garage's
-   correct rate (usually 18). Bills use this number now.
+CHECK THE BILLS:
+ - Make a tyre job: the bill should say "Cash Bill" with CGST 9% and
+   SGST 9%. Make a service-only job: "LABOUR BILL", no GST.
+ - (The GST % box in Settings is no longer used by the bills.)
 
 CUSTOMERS + EDIT:
  1. Add a test job with New Job (pick a Vehicle Type).
@@ -169,6 +192,10 @@ START SERVER BUTTON (optional test):
    the job. It fixes it everywhere, old invoices included.
  - To finish a job: ... > Mark as Completed. The coloured status
    label on the card is now just a label.
+ - Add a tyre or part again with the same name and it adds to the
+   old card. Cards that were already duplicated before this update
+   stay as they are — delete the extra ones by hand.
+ - Complete a job only after making its invoice.
  - Tyres taken out by jobs removed BEFORE this update were never
    put back. Check Tyre Stock counts once and correct them.
 

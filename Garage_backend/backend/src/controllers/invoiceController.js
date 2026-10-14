@@ -15,7 +15,6 @@ const createInvoice = async (req, res, next) => {
     const job_card_id    = req.body.job_card_id;
     const labour_charge  = req.body.labour_charge  || 0;
     const parts_charge   = req.body.parts_charge   || 0;
-    const gst_percent    = req.body.gst_percent ?? await currentGstPercent();
     const discount       = req.body.discount       || 0;
     const payment_method = req.body.payment_method;
 
@@ -43,6 +42,9 @@ const createInvoice = async (req, res, next) => {
         data: existing,
       });
     }
+
+    // Tyre sales bill: CGST 9% + SGST 9% on the parts amount. Service bill: no GST.
+    const gst_percent = (await invoiceModel.jobHasTyres(job_card_id)) ? 18 : 0;
 
     const invoice = await invoiceModel.createInvoice(
       job_card_id,
@@ -189,14 +191,10 @@ const updateInvoice = async (req, res, next) => {
     const parts_charge  = req.body.parts_charge  ?? 0;
     const discount      = req.body.discount      ?? 0;
 
-    // Keep the rate the invoice was created with unless one is sent, so
-    // changing the Settings rate later doesn't silently re-price old bills.
-    let gst_percent = req.body.gst_percent;
-    if (gst_percent === undefined || gst_percent === null) {
-      const existing = await invoiceModel.getInvoiceById(req.params.id);
-      if (!existing) return res.status(404).json({ success: false, message: 'Invoice not found' });
-      gst_percent = existing.gst_percent;
-    }
+    // Always keep the rate the invoice was created with (never re-price old bills).
+    const existing = await invoiceModel.getInvoiceById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Invoice not found' });
+    const gst_percent = existing.gst_percent;
 
     const invoice = await invoiceModel.updateInvoice(
       req.params.id, labour_charge, parts_charge, gst_percent, discount

@@ -510,6 +510,7 @@ class ApiService {
     required String serviceType,
     String? remarks,
     String? partsUsed,
+    List<Map<String, dynamic>> inventoryItems = const [], // [{inventory_id, quantity}]
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/service-details');
     final response = await http.post(
@@ -520,6 +521,7 @@ class ApiService {
         'service_type': serviceType,
         if (remarks != null && remarks.isNotEmpty) 'remarks': remarks,
         if (partsUsed != null && partsUsed.isNotEmpty) 'parts_used': partsUsed,
+        if (inventoryItems.isNotEmpty) 'inventory_items': inventoryItems,
       }),
     );
     return _decodeResponse(response);
@@ -573,12 +575,36 @@ class ApiService {
     return ((decoded as Map<String, dynamic>)['data'] as List?) ?? [];
   }
 
+  /// Paid bills by payment mode: `{methods, total_count, total_amount, unpaid}`.
+  Future<Map<String, dynamic>> getPaymentModes(String range) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/reports/payment-modes?range=$range');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return ((decoded as Map<String, dynamic>)['data'] as Map<String, dynamic>?) ?? {};
+  }
+
   /// Tyres sold: `{totals, by_brand, by_type, by_tyre, by_day}`.
   Future<Map<String, dynamic>> getTyreSales(String range) async {
     final uri = Uri.parse('$kApiBaseUrl/api/reports/tyre-sales?range=$range');
     final response = await http.get(uri, headers: _createHeaders());
     final decoded = await _decodeResponse(response);
     return ((decoded as Map<String, dynamic>)['data'] as Map<String, dynamic>?) ?? {};
+  }
+
+  /// Tyres bought from the dealer: `{total_tyres, total_cost, rows:[{brand,size,tyres,cost}]}`.
+  Future<Map<String, dynamic>> getTyrePurchases(String range) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/reports/tyre-purchases?range=$range');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return ((decoded as Map<String, dynamic>)['data'] as Map<String, dynamic>?) ?? {};
+  }
+
+  /// Last 50 dealer purchases (newest first).
+  Future<List<dynamic>> getRecentTyrePurchases() async {
+    final uri = Uri.parse('$kApiBaseUrl/api/tyres/purchases');
+    final response = await http.get(uri, headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return ((decoded as Map<String, dynamic>)['data'] as List?) ?? [];
   }
 
   Future<dynamic> getRevenueTrend() async {
@@ -802,6 +828,8 @@ class ApiService {
     int quantity = 0,
     double? price,
     String? offer,
+    double? unitCost,
+    String? dealer,
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/tyres');
     final response = await http.post(
@@ -816,6 +844,8 @@ class ApiService {
         'quantity': quantity,
         if (price != null) 'price': price,
         if (offer != null && offer.isNotEmpty) 'offer': offer,
+        if (unitCost != null) 'unit_cost': unitCost,
+        if (dealer != null && dealer.isNotEmpty) 'dealer': dealer,
       }),
     );
     return _decodeResponse(response);

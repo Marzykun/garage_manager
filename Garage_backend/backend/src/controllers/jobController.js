@@ -156,6 +156,12 @@ const startJob = async (req, res, next) => {
 // PATCH /api/jobs/:id/complete
 const completeJob = async (req, res, next) => {
   try {
+    if (!(await jobModel.hasInvoice(req.params.id))) {
+      return res.status(409).json({
+        success: false,
+        message: 'Invoice not generated. Generate the invoice before completing the job.',
+      });
+    }
     const job = await jobModel.completeJob(req.params.id);
 
     if (!job) {

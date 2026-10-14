@@ -111,6 +111,14 @@ const startJob = async (id) => {
   return result.rows[0];
 };
 
+const hasInvoice = async (id) => {
+  const result = await pool.query(
+    'SELECT 1 FROM invoices WHERE job_card_id = $1 LIMIT 1',
+    [id]
+  );
+  return result.rowCount > 0;
+};
+
 const completeJob = async (id) => {
   const result = await pool.query(
     `UPDATE job_cards
@@ -143,6 +151,15 @@ const cancelJob = async (id) => {
                FROM tyre_change_details WHERE job_card_id = $1
                GROUP BY tyre_id) used
          WHERE t.id = used.tyre_id`,
+        [id]
+      );
+      await client.query(
+        `UPDATE inventory i
+         SET quantity = i.quantity + used.qty
+         FROM (SELECT inventory_id, SUM(quantity) AS qty
+               FROM job_parts_used WHERE job_card_id = $1 AND inventory_id IS NOT NULL
+               GROUP BY inventory_id) used
+         WHERE i.id = used.inventory_id`,
         [id]
       );
     }
@@ -264,6 +281,7 @@ module.exports = {
   getJobsByCustomerId,
   startJob,
   completeJob,
+  hasInvoice,
   cancelJob,
   markReadyForDelivery,
 };

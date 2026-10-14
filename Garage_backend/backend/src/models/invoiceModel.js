@@ -1,8 +1,14 @@
 const pool = require('../config/db');
 
+const jobHasTyres = async (job_card_id) => {
+  const r = await pool.query(
+    `SELECT 1 FROM tyre_change_details WHERE job_card_id = $1 LIMIT 1`, [job_card_id]);
+  return r.rowCount > 0;
+};
+
 const createInvoice = async (job_card_id, labour_charge, parts_charge, gst_percent, discount, payment_method) => {
   const subtotal   = parseFloat(labour_charge) + parseFloat(parts_charge);
-  const gst_amount = (subtotal * parseFloat(gst_percent)) / 100;
+  const gst_amount = (parseFloat(parts_charge) * parseFloat(gst_percent)) / 100; // GST on parts only
   const total_amount = subtotal + gst_amount - parseFloat(discount);
 
   const result = await pool.query(
@@ -66,7 +72,7 @@ const getInvoiceById = async (id) => {
 
 const updateInvoice = async (id, labour_charge, parts_charge, gst_percent, discount) => {
   const subtotal    = parseFloat(labour_charge) + parseFloat(parts_charge);
-  const gst_amount  = (subtotal * parseFloat(gst_percent)) / 100;
+  const gst_amount  = (parseFloat(parts_charge) * parseFloat(gst_percent)) / 100; // GST on parts only
   const total_amount = subtotal + gst_amount - parseFloat(discount);
 
   const result = await pool.query(
@@ -144,6 +150,7 @@ const getInvoicePrintData = async (id) => {
   ]);
 
   return {
+    bill_type: tyreResult.rows.length > 0 ? 'tyre' : 'service',
     invoice,
     garage: garageResult.rows[0] || {},
     tyres: tyreResult.rows,
@@ -169,6 +176,7 @@ const getAllInvoices = async () => {
 };
 
 module.exports = {
+  jobHasTyres,
   createInvoice,
   updateInvoice,
   getInvoiceByJobId,

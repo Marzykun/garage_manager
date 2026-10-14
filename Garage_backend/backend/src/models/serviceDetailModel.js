@@ -1,14 +1,49 @@
 const pool = require('../config/db');
 
-// Add generic service details
-const createServiceDetail = async (job_card_id, service_type, remarks, parts_used) => {
-  const result = await pool.query(
-    `INSERT INTO service_details (job_card_id, service_type, remarks, parts_used)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [job_card_id, service_type, remarks, parts_used]
-  );
-  return result.rows[0];
+// Add generic service details. `items` = [{inventory_id, quantity}] picked from
+// inventory: stock is checked + deducted and the lines stored in ONE transaction,
+// and their "name ×qty" text is folded into parts_used (invoices read that column).
+const createServiceDetail = async (job_card_id, service_type, remarks, parts_used, items = []) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const lines = [];
+    for (const it of items) {
+      const qty = parseInt(it.quantity, 10);
+      if (!it.inventory_id || !(qty > 0)) throw new Error('Invalid inventory item or quantity');
+      const inv = await client.query(
+        `SELECT id, name, quantity FROM inventory WHERE id = $1 FOR UPDATE`, [it.inventory_id]);
+      if (inv.rows.length === 0) throw new Error('Inventory item not found');
+      const { name, quantity: stock } = inv.rows[0];
+      if (stock < qty) {
+        throw new Error(stock <= 0 ? `No stock for ${name}` : `Only ${stock} left for ${name}`);
+      }
+      await client.query(`UPDATE inventory SET quantity = quantity - $1 WHERE id = $2`, [qty, it.inventory_id]);
+      lines.push({ inventory_id: it.inventory_id, quantity: qty, name });
+    }
+    const partsText = [...lines.map((l) => `${l.name} x${l.quantity}`), parts_used]
+      .filter(Boolean).join(', ') || null;
+    const result = await client.query(
+      `INSERT INTO service_details (job_card_id, service_type, remarks, parts_used)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [job_card_id, service_type, remarks, partsText]
+    );
+    for (const l of lines) {
+      await client.query(
+        `INSERT INTO job_parts_used (job_card_id, service_detail_id, inventory_id, quantity, name)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [job_card_id, result.rows[0].id, l.inventory_id, l.quantity, l.name]
+      );
+    }
+    await client.query('COMMIT');
+    return result.rows[0];
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 };
 
 // Get service details for a job

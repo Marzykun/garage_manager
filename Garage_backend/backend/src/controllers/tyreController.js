@@ -3,18 +3,24 @@ const tyreModel = require('../models/tyreModel');
 // POST /api/tyres
 const addTyre = async (req, res, next) => {
   try {
-    const { brand, model, size, vehicle_type, quantity, price, offer, pattern } = req.body;
+    const { brand, model, size, vehicle_type, quantity, price, offer, pattern, unit_cost, dealer } = req.body;
 
     if (!brand || !size) {
       return res.status(400).json({ success: false, message: 'brand and size are required' });
     }
+    const qty = parseInt(quantity, 10) || 0;
+    if (qty < 0) return res.status(400).json({ success: false, message: 'quantity cannot be negative' });
 
-    const tyre = await tyreModel.addTyre(
+    const { merged, ...tyre } = await tyreModel.addTyre(
       brand, model || null, size, vehicle_type || null,
-      quantity || 0, price || null, offer || null, pattern || null
+      qty, price || null, offer || null, pattern || null,
+      unit_cost || null, (dealer || '').trim() || null
     );
 
-    res.status(201).json({ success: true, message: 'Tyre added to stock', data: tyre });
+    res.status(merged ? 200 : 201).json({
+      success: true, merged,
+      message: merged ? 'Added to existing tyre' : 'Tyre added to stock', data: tyre,
+    });
   } catch (err) { next(err); }
 };
 
@@ -85,4 +91,11 @@ const deleteTyre = async (req, res, next) => {
   }
 };
 
-module.exports = { addTyre, getAllTyres, getTyreById, updateTyre, fitTyre, deleteTyre };
+// GET /api/tyres/purchases — last 50 purchases from the dealer
+const getPurchases = async (req, res, next) => {
+  try {
+    res.status(200).json({ success: true, data: await tyreModel.getPurchases() });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getPurchases, addTyre, getAllTyres, getTyreById, updateTyre, fitTyre, deleteTyre };

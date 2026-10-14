@@ -49,6 +49,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   final _remarksCtrl = TextEditingController();
   final _partsCtrl   = TextEditingController();
 
+  // Inventory parts picked for this log entry: {item: inventory row, qty: int}
+  final List<Map<String, dynamic>> _pickedParts = [];
+  List<dynamic> _inventory = [];
+
   // Tyre change fields
   List<dynamic> _tyreStock  = [];
   bool _tyresLoading        = false;
@@ -65,6 +69,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     super.initState();
     _loadRecords();
     if (_isTyreChange) _loadTyreStock();
+    if (!_isTyreChange && !_isBalancing && !_isAlignment) _loadInventory();
   }
 
   @override
@@ -99,6 +104,27 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loadInventory() async {
+    try {
+      final data = await widget.apiService.getInventory();
+      if (mounted) setState(() => _inventory = data is List ? data : []);
+    } catch (_) {}
+  }
+
+  int _stockOf(dynamic i) => int.tryParse(i['quantity']?.toString() ?? '0') ?? 0;
+
+  Future<void> _pickPart() async {
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PartPickerSheet(
+        items: _inventory.cast<Map<String, dynamic>>(),
+        takenIds: _pickedParts.map((p) => p['item']['id'].toString()).toSet(),
+      ),
+    );
+    if (picked != null) setState(() => _pickedParts.add({'item': picked, 'qty': 1}));
   }
 
   Future<void> _loadTyreStock() async {
@@ -141,13 +167,26 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         );
         _alignReportCtrl.clear();
       } else {
+        for (final p in _pickedParts) {
+          final stock = _stockOf(p['item']);
+          if (stock < (p['qty'] as int)) {
+            _showSnack(stock <= 0 ? 'No stock for ${p['item']['name']}.' : 'Only $stock left for ${p['item']['name']}.');
+            return;
+          }
+        }
         await widget.apiService.saveServiceDetail(
           jobCardId:   widget.jobId,
           serviceType: widget.serviceType,
           remarks:     _remarksCtrl.text.trim(),
           partsUsed:   _partsCtrl.text.trim(),
+          inventoryItems: [
+            for (final p in _pickedParts)
+              {'inventory_id': p['item']['id'].toString(), 'quantity': p['qty']},
+          ],
         );
         _partsCtrl.clear();
+        setState(_pickedParts.clear);
+        _loadInventory(); // refresh stock counts
       }
       _remarksCtrl.clear();
       _showSnack('Saved successfully.');
@@ -314,16 +353,45 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   ];
 
   List<Widget> _genericFields() => [
-    const _FieldLabel('Parts Used (optional)'),
+    const _FieldLabel('Parts from Inventory (optional)'),
+    const SizedBox(height: 8),
+    for (var i = 0; i < _pickedParts.length; i++) _pickedRow(i),
+    OutlinedButton.icon(
+      onPressed: _inventory.isEmpty ? null : _pickPart,
+      icon: const Icon(Icons.add, size: 18),
+      label: Text(_inventory.isEmpty ? 'No inventory items' : 'Add part from inventory'),
+    ),
+    const SizedBox(height: 16),
+    const _FieldLabel('Other Parts (typed, optional)'),
     const SizedBox(height: 8),
     TextField(
       controller: _partsCtrl,
       style: const TextStyle(fontSize: 14, color: _colorHeading),
-      decoration: const InputDecoration(hintText: 'e.g. Filter, oil, coolant…',
+      decoration: const InputDecoration(hintText: 'Parts not in inventory…',
           hintStyle: TextStyle(fontSize: 13, color: _colorSubtext)),
     ),
     const SizedBox(height: 16),
   ];
+
+  Widget _pickedRow(int i) {
+    final p = _pickedParts[i];
+    final stock = _stockOf(p['item']);
+    final qty = p['qty'] as int;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(children: [
+        Expanded(child: Text('${p['item']['name']}  ($stock in stock)',
+            style: const TextStyle(fontSize: 14, color: _colorHeading))),
+        IconButton(icon: const Icon(Icons.remove_circle_outline),
+            onPressed: qty > 1 ? () => setState(() => p['qty'] = qty - 1) : null),
+        Text('$qty', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        IconButton(icon: const Icon(Icons.add_circle_outline),
+            onPressed: qty < stock ? () => setState(() => p['qty'] = qty + 1) : null),
+        IconButton(icon: const Icon(Icons.close, size: 18),
+            onPressed: () => setState(() => _pickedParts.removeAt(i))),
+      ]),
+    );
+  }
 
   List<Widget> _tyreChangeFields() {
     if (_tyresLoading) {
@@ -711,6 +779,59 @@ class _WeightField extends StatelessWidget {
         labelText: label,
         suffixText: 'g',
         suffixStyle: const TextStyle(fontSize: 13, color: _colorSubtext),
+      ),
+    );
+  }
+}
+
+
+/// Bottom sheet: search inventory, tap an in-stock item to pick it.
+class _PartPickerSheet extends StatefulWidget {
+  const _PartPickerSheet({required this.items, required this.takenIds});
+  final List<Map<String, dynamic>> items;
+  final Set<String> takenIds;
+
+  @override
+  State<_PartPickerSheet> createState() => _PartPickerSheetState();
+}
+
+class _PartPickerSheetState extends State<_PartPickerSheet> {
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = widget.items.where((i) =>
+        !widget.takenIds.contains(i['id'].toString()) &&
+        i['name'].toString().toLowerCase().contains(_q.toLowerCase())).toList();
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              autofocus: true,
+              decoration: const InputDecoration(hintText: 'Search inventory…', prefixIcon: Icon(Icons.search)),
+              onChanged: (v) => setState(() => _q = v),
+            ),
+          ),
+          Expanded(
+            child: ListView(children: [
+              for (final i in shown)
+                Builder(builder: (_) {
+                  final q = int.tryParse(i['quantity']?.toString() ?? '0') ?? 0;
+                  return ListTile(
+                    enabled: q > 0,
+                    title: Text(i['name'].toString()),
+                    subtitle: Text(i['category'].toString().replaceAll('_', ' ')),
+                    trailing: Text(q > 0 ? '$q in stock' : 'No stock'),
+                    onTap: q > 0 ? () => Navigator.pop(context, i) : null,
+                  );
+                }),
+            ]),
+          ),
+        ]),
       ),
     );
   }

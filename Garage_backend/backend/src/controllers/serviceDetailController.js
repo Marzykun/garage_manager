@@ -27,7 +27,8 @@ const createServiceDetail = async (req, res, next) => {
       job_card_id,
       service_type,
       remarks   || null,
-      parts_used || null
+      parts_used || null,
+      Array.isArray(req.body.inventory_items) ? req.body.inventory_items : []
     );
 
     res.status(201).json({
@@ -37,6 +38,9 @@ const createServiceDetail = async (req, res, next) => {
     });
 
   } catch (err) {
+    if (/^(No stock|Only \d+ left|Inventory item not found|Invalid inventory)/.test(err.message)) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
     next(err);
   }
 };
