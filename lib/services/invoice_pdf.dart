@@ -7,8 +7,9 @@ import 'package:pdf/widgets.dart' as pw;
 
 /// Builds a printable A4 bill from the `/api/invoices/:id/print` payload:
 /// `{ bill_type: 'tyre'|'service', invoice, garage, tyres, parts_used }`.
-/// Tyre bill = "Cash Bill" (CGST 9% + SGST 9% on parts, rounded total);
-/// service bill = "LABOUR BILL" (no GST).
+/// Tyre bill = "Cash Bill" (CGST + SGST, each half the stored gst_percent, on
+/// parts only, rounded total); service bill = "LABOUR BILL" (GST, if any, on
+/// labour + parts, shown as CGST/SGST lines).
 class InvoicePdf {
   static const _ink     = PdfColor.fromInt(0xFF1A2332);
   static const _muted   = PdfColor.fromInt(0xFF5A6578);
@@ -33,6 +34,7 @@ class InvoicePdf {
     final garage = (data['garage']  as Map? ?? {}).cast<String, dynamic>();
     final tyres  = (data['tyres']   as List? ?? []).cast<Map>();
     final partsUsed = (data['parts_used'] as List? ?? []).map((e) => e.toString()).toList();
+    final partLines = pricedPartLines(data['parts_lines'] as List? ?? []);
     final isTyre = (data['bill_type'] ?? (tyres.isNotEmpty ? 'tyre' : 'service')) == 'tyre';
     final garageName = _str(garage['garage_name'], 'My Garage');
 
@@ -46,17 +48,30 @@ class InvoicePdf {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.fromLTRB(36, 36, 36, 36),
         build: (ctx) => isTyre
-            ? _tyreBill(inv, garage, garageName, tyres, partsUsed)
-            : _serviceBill(inv, garage, garageName, partsUsed),
+            ? _tyreBill(inv, garage, garageName, tyres, partsUsed, partLines)
+            : _serviceBill(inv, garage, garageName, partsUsed, partLines),
       ),
     );
     return doc.save();
   }
 
+  /// Inventory part lines from the print payload's `parts_lines` that carry a
+  /// price: `(name, qty, amount)`. Unpriced lines add nothing so they are left out.
+  static List<({String name, int qty, double amount})> pricedPartLines(List raw) => [
+        for (final p in raw.cast<Map>())
+          if ((int.tryParse(p['quantity']?.toString() ?? '') ?? 0) > 0 && _num(p['unit_price']) > 0)
+            (
+              name: _str(p['name'], 'Part'),
+              qty: int.parse(p['quantity'].toString()),
+              amount: _num(p['unit_price']) * int.parse(p['quantity'].toString()),
+            )
+      ];
+
   // ── Tyre sales bill ("Cash Bill") ────────────────────────────────────────
 
   static List<pw.Widget> _tyreBill(Map<String, dynamic> inv, Map<String, dynamic> garage,
-      String garageName, List<Map> tyres, List<String> partsUsed) {
+      String garageName, List<Map> tyres, List<String> partsUsed,
+      List<({String name, int qty, double amount})> partLines) {
     final labour   = _num(inv['labour_charge']);
     final parts    = _num(inv['parts_charge']);
     final discount = _num(inv['discount']);
@@ -81,12 +96,17 @@ class InvoicePdf {
         _money2(qty * price),
       ]);
     }
-    if (tyreRows.isNotEmpty && tyreSum <= parts + 0.005) {
+    // Inventory parts: name in Particulars, qty in the Tyre/qty column
+    final partRows = [for (final l in partLines) [l.name, '', '${l.qty}', _money2(l.amount)]];
+    final partSum = partLines.fold<double>(0, (a, l) => a + l.amount);
+    final itemised = tyreSum + partSum;
+    if ((tyreRows.isNotEmpty || partRows.isNotEmpty) && itemised <= parts + 0.005) {
       rows.addAll(tyreRows);
-      if (parts - tyreSum > 0.005) rows.add(['Other parts & consumables', '', '', _money2(parts - tyreSum)]);
+      rows.addAll(partRows);
+      if (parts - itemised > 0.005) rows.add(['Other parts & consumables', '', '', _money2(parts - itemised)]);
     } else if (parts > 0) {
       // Parts charge was set by hand and doesn't match the tyre log.
-      final fitted = tyreRows.map((r) => '${r[0]} ${r[1]} x${r[2]}'.trim());
+      final fitted = [...tyreRows, ...partRows].map((r) => '${r[0]} ${r[1]} x${r[2]}'.trim());
       final detail = [...fitted, ...partsUsed].join('; ');
       rows.add(['Parts & materials${detail.isEmpty ? '' : ' ($detail)'}', '', '', _money2(parts)]);
     }
@@ -215,17 +235,18 @@ class InvoicePdf {
   // ── Service bill ("LABOUR BILL") ─────────────────────────────────────────
 
   static List<pw.Widget> _serviceBill(Map<String, dynamic> inv, Map<String, dynamic> garage,
-      String garageName, List<String> partsUsed) {
+      String garageName, List<String> partsUsed,
+      List<({String name, int qty, double amount})> partLines) {
     final labour   = _num(inv['labour_charge']);
     final parts    = _num(inv['parts_charge']);
     final discount = _num(inv['discount']);
-    // No GST on this bill: total = labour + parts - discount.
-    final total = serviceTotal(labour: labour, parts: parts, discount: discount);
+    final pct   = _num(inv['gst_percent']);
+    final half  = serviceGstHalf(labour: labour, parts: parts, gstPercent: pct);
+    final total = serviceTotal(labour: labour, parts: parts, discount: discount, gstPercent: pct);
 
     final rows = <List<String>>[
       if (labour > 0) [_serviceLabel(inv['service_type']?.toString()), '1', _money2(labour)],
-      if (parts > 0)
-        [partsUsed.isEmpty ? 'Parts & materials' : 'Parts: ${partsUsed.join('; ')}', '1', _money2(parts)],
+      ..._servicePartRows(parts, partsUsed, partLines),
     ];
     const head = pw.TextStyle(fontSize: 9.5, color: _ink, fontWeight: pw.FontWeight.bold);
     const cell = pw.TextStyle(fontSize: 10, color: _ink);
@@ -283,6 +304,12 @@ class InvoicePdf {
           if (discount > 0)
             pw.TableRow(children: [
               c('Less: Discount'), c(''), c('-${_money2(discount)}', align: pw.TextAlign.right)]),
+          if (half > 0) ...[
+            pw.TableRow(children: [
+              c('CGST ${_pct(pct / 2)}%'), c(''), c(_money2(half), align: pw.TextAlign.right)]),
+            pw.TableRow(children: [
+              c('SGST ${_pct(pct / 2)}%'), c(''), c(_money2(half), align: pw.TextAlign.right)]),
+          ],
           pw.TableRow(children: [
             c('Total', style: head), c(''), c(_money2(total), style: head, align: pw.TextAlign.right)]),
         ],
@@ -303,8 +330,34 @@ class InvoicePdf {
     ];
   }
 
-  static double serviceTotal({required double labour, required double parts, required double discount}) =>
-      ((labour + parts - discount) * 100).round() / 100;
+  /// Parts rows of a service bill: itemised lines (+ remainder) when they fit
+  /// inside the parts charge, otherwise one lump row as before.
+  static List<List<String>> _servicePartRows(
+      double parts, List<String> partsUsed, List<({String name, int qty, double amount})> lines) {
+    if (parts <= 0) return [];
+    final sum = lines.fold<double>(0, (a, l) => a + l.amount);
+    if (lines.isNotEmpty && sum <= parts + 0.005) {
+      return [
+        for (final l in lines) [l.name, '${l.qty}', _money2(l.amount)],
+        if (parts - sum > 0.005) ['Other parts & consumables', '1', _money2(parts - sum)],
+      ];
+    }
+    return [[partsUsed.isEmpty ? 'Parts & materials' : 'Parts: ${partsUsed.join('; ')}', '1', _money2(parts)]];
+  }
+
+  /// Half of the GST (the CGST or SGST figure) on a service bill: GST applies to labour + parts.
+  static double serviceGstHalf({required double labour, required double parts, required double gstPercent}) =>
+      ((labour + parts) * gstPercent / 200 * 100).round() / 100;
+
+  static double serviceTotal({
+    required double labour,
+    required double parts,
+    required double discount,
+    double gstPercent = 0,
+  }) =>
+      ((labour + parts + 2 * serviceGstHalf(labour: labour, parts: parts, gstPercent: gstPercent) - discount) * 100)
+          .round() /
+      100;
 
   // ── Shared pieces ────────────────────────────────────────────────────────
 

@@ -98,6 +98,7 @@ CREATE TABLE inventory (
   quantity    INTEGER DEFAULT 0,
   unit        TEXT DEFAULT 'pcs',
   min_stock   INTEGER DEFAULT 5,
+  price       NUMERIC(10,2) DEFAULT 0,
   created_at  TIMESTAMPTZ DEFAULT now()
 );
 
@@ -227,6 +228,7 @@ CREATE TABLE IF NOT EXISTS job_parts_used (
   inventory_id      UUID REFERENCES inventory(id) ON DELETE SET NULL,
   quantity          INTEGER NOT NULL,
   name              TEXT NOT NULL,
+  unit_price        NUMERIC(10,2) DEFAULT 0,
   created_at        TIMESTAMPTZ DEFAULT now()
 );
 

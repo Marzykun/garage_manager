@@ -6,6 +6,14 @@
  file or directory ... .s.PGSQL.5432" that a restart did not fix.
 ==============================================================
 
+CHECK THE PHONE SETUP (one line)
+ Type this in Termux. It only looks, it changes nothing,
+ and prints [ OK ] / [WARN] / [FAIL] with a fix for each:
+
+    sh ~/garage_manager/Garage_backend/deploy/check-garage.sh
+
+ Send us a photo of the result if it says "problems".
+
 READ FIRST
  - After this reset the app is EMPTY: no customers, jobs or
    invoices.

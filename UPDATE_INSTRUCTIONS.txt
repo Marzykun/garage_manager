@@ -9,6 +9,22 @@
 !! Cannot GET /api/reports/..." errors.
 
 WHAT THIS UPDATE ADDS
+ - GST % is now a box on the Generate Invoice screen. It starts at
+   18 for jobs with tyres and 0 for service-only jobs, and the owner
+   can change it on any bill. Tyre bill: split into CGST/SGST.
+   Service bill: CGST/SGST lines appear only when GST is above 0.
+ - Parts Inventory: each part has a Price per unit. When a part is
+   used in a Full Service log entry its price is added to the
+   invoice's Parts Charge automatically and printed on the bill.
+   (Tyre Change, Balancing and Alignment log screens do not pick
+   inventory parts.)
+ - "Merge duplicates" button (Tyre Stock and Parts Inventory) joins
+   old duplicate cards into one. Adding or editing an item so it
+   matches an existing one now merges them automatically.
+ - Settings > Data Backup > "Restore from file": pick a backup file
+   from the phone (WhatsApp / Drive / Downloads) to put the data
+   back, no Termux needed. Shows "Last backup: N days ago".
+ - One-line phone check: sh ~/garage_manager/Garage_backend/deploy/check-garage.sh
  - NEW BILL FORMATS. Jobs with tyres print a "Cash Bill" (like the
    paper tyre bill) with CGST 9% + SGST 9% added on the tyre amount.
    Jobs without tyres print a "LABOUR BILL" with NO GST. Labour on a
@@ -204,6 +220,11 @@ START SERVER BUTTON (optional test):
 --------------------------------------------------------------
  - App says server not responding even after "Start Server":
    restart the phone, wait 1 minute, try again.
+ - First, check everything in one line (changes nothing):
+
+    sh ~/garage_manager/Garage_backend/deploy/check-garage.sh
+
+   and send us a photo of the screen.
  - Still not working: open Termux, type
 
     cat ~/garage-backend.log

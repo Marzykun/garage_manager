@@ -12,14 +12,14 @@ const createServiceDetail = async (job_card_id, service_type, remarks, parts_use
       const qty = parseInt(it.quantity, 10);
       if (!it.inventory_id || !(qty > 0)) throw new Error('Invalid inventory item or quantity');
       const inv = await client.query(
-        `SELECT id, name, quantity FROM inventory WHERE id = $1 FOR UPDATE`, [it.inventory_id]);
+        `SELECT id, name, quantity, price FROM inventory WHERE id = $1 FOR UPDATE`, [it.inventory_id]);
       if (inv.rows.length === 0) throw new Error('Inventory item not found');
-      const { name, quantity: stock } = inv.rows[0];
+      const { name, quantity: stock, price } = inv.rows[0];
       if (stock < qty) {
         throw new Error(stock <= 0 ? `No stock for ${name}` : `Only ${stock} left for ${name}`);
       }
       await client.query(`UPDATE inventory SET quantity = quantity - $1 WHERE id = $2`, [qty, it.inventory_id]);
-      lines.push({ inventory_id: it.inventory_id, quantity: qty, name });
+      lines.push({ inventory_id: it.inventory_id, quantity: qty, name, price: price || 0 });
     }
     const partsText = [...lines.map((l) => `${l.name} x${l.quantity}`), parts_used]
       .filter(Boolean).join(', ') || null;
@@ -31,9 +31,9 @@ const createServiceDetail = async (job_card_id, service_type, remarks, parts_use
     );
     for (const l of lines) {
       await client.query(
-        `INSERT INTO job_parts_used (job_card_id, service_detail_id, inventory_id, quantity, name)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [job_card_id, result.rows[0].id, l.inventory_id, l.quantity, l.name]
+        `INSERT INTO job_parts_used (job_card_id, service_detail_id, inventory_id, quantity, name, unit_price)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [job_card_id, result.rows[0].id, l.inventory_id, l.quantity, l.name, l.price]
       );
     }
     await client.query('COMMIT');
@@ -52,6 +52,16 @@ const getServiceDetailByJobId = async (job_card_id) => {
     `SELECT * FROM service_details
      WHERE job_card_id = $1
      ORDER BY created_at ASC`,
+    [job_card_id]
+  );
+  return result.rows;
+};
+
+// Inventory parts (with the unit price snapshotted at log time) used on a job
+const getPartsUsedByJobId = async (job_card_id) => {
+  const result = await pool.query(
+    `SELECT name, quantity, COALESCE(unit_price, 0) AS unit_price FROM job_parts_used
+     WHERE job_card_id = $1 ORDER BY created_at ASC`,
     [job_card_id]
   );
   return result.rows;
@@ -106,6 +116,7 @@ const getTyreChangeByJobId = async (job_card_id) => {
 module.exports = {
   createServiceDetail,
   getServiceDetailByJobId,
+  getPartsUsedByJobId,
   createTyreChange,
   getTyreChangeByJobId,
 };

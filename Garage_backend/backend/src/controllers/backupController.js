@@ -40,4 +40,14 @@ const restoreBackup = async (req, res, next) => {
   }
 };
 
-module.exports = { getBackups, createBackup, downloadBackup, restoreBackup };
+// POST /api/backups/restore-upload — raw .dump bytes in the body
+const restoreUpload = async (req, res, next) => {
+  try {
+    const result = await backupService.restoreUploaded(req.body);
+    res.status(200).json({ success: true, message: 'Backup restored', data: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { getBackups, createBackup, downloadBackup, restoreBackup, restoreUpload };

@@ -358,6 +358,7 @@ class ApiService {
     double labourCharge = 0,
     double partsCharge = 0,
     double discount = 0,
+    double? gstPercent,
     String? notes,
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/invoices');
@@ -369,6 +370,7 @@ class ApiService {
         'labour_charge': labourCharge,
         'parts_charge': partsCharge,
         'discount': discount,
+        if (gstPercent != null) 'gst_percent': gstPercent,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
       }),
     );
@@ -407,6 +409,7 @@ class ApiService {
     double labourCharge = 0,
     double partsCharge = 0,
     double discount = 0,
+    double? gstPercent,
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/invoices/$invoiceId');
     final response = await http.put(
@@ -416,6 +419,7 @@ class ApiService {
         'labour_charge': labourCharge,
         'parts_charge':  partsCharge,
         'discount':      discount,
+        if (gstPercent != null) 'gst_percent': gstPercent,
       }),
     );
     return _decodeResponse(response);
@@ -745,6 +749,17 @@ class ApiService {
     return _decodeResponse(response);
   }
 
+  /// Replaces all data with an uploaded .dump file (safety copy kept server-side).
+  Future<dynamic> restoreBackupUpload(List<int> bytes) async {
+    final uri = Uri.parse('$kApiBaseUrl/api/backups/restore-upload');
+    final response = await http.post(
+      uri,
+      headers: {..._createHeaders(), 'Content-Type': 'application/octet-stream'},
+      body: bytes,
+    );
+    return _decodeResponse(response);
+  }
+
   // ── Inventory ─────────────────────────────────────────────────────────────
 
   Future<dynamic> getInventory({String? category}) async {
@@ -772,12 +787,13 @@ class ApiService {
     int quantity = 0,
     String unit = 'pcs',
     int minStock = 5,
+    double price = 0,
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/inventory');
     final response = await http.post(
       uri,
       headers: _createHeaders(),
-      body: jsonEncode({'name': name, 'category': category, 'quantity': quantity, 'unit': unit, 'min_stock': minStock}),
+      body: jsonEncode({'name': name, 'category': category, 'quantity': quantity, 'unit': unit, 'min_stock': minStock, 'price': price}),
     );
     return _decodeResponse(response);
   }
@@ -789,14 +805,35 @@ class ApiService {
     int quantity = 0,
     String unit = 'pcs',
     int minStock = 5,
+    double price = 0,
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/inventory/$id');
     final response = await http.put(
       uri,
       headers: _createHeaders(),
-      body: jsonEncode({'name': name, 'category': category, 'quantity': quantity, 'unit': unit, 'min_stock': minStock}),
+      body: jsonEncode({'name': name, 'category': category, 'quantity': quantity, 'unit': unit, 'min_stock': minStock, 'price': price}),
     );
     return _decodeResponse(response);
+  }
+
+  /// Groups of inventory rows with the same name + category.
+  Future<List<dynamic>> getInventoryDuplicates() async {
+    final response = await http.get(Uri.parse('$kApiBaseUrl/api/inventory/duplicates'), headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return (decoded is Map ? decoded['data'] : null) as List? ?? [];
+  }
+
+  /// Owner only. Returns {merged_groups, removed_rows}.
+  Future<dynamic> mergeInventoryDuplicates() async {
+    final response = await http.post(Uri.parse('$kApiBaseUrl/api/inventory/merge-duplicates'), headers: _createHeaders());
+    return _decodeResponse(response);
+  }
+
+  /// Inventory parts logged on a job, with the unit price snapshotted at log time.
+  Future<List<dynamic>> getJobParts(String jobId) async {
+    final response = await http.get(Uri.parse('$kApiBaseUrl/api/service-details/parts/job/$jobId'), headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return (decoded is Map ? decoded['data'] : null) as List? ?? [];
   }
 
   Future<dynamic> deleteInventoryItem(String id) async {
@@ -883,6 +920,19 @@ class ApiService {
   Future<dynamic> deleteTyre(String tyreId) async {
     final uri = Uri.parse('$kApiBaseUrl/api/tyres/$tyreId');
     final response = await http.delete(uri, headers: _createHeaders());
+    return _decodeResponse(response);
+  }
+
+  /// Duplicate tyre groups (owner only): `[{brand,model,size,vehicle_type,pattern,merged_quantity,rows:[{id,quantity,price}]}]`.
+  Future<List<dynamic>> getTyreDuplicates() async {
+    final response = await http.get(Uri.parse('$kApiBaseUrl/api/tyres/duplicates'), headers: _createHeaders());
+    final decoded = await _decodeResponse(response);
+    return decoded is Map ? (decoded['data'] as List? ?? []) : [];
+  }
+
+  /// Merges duplicate tyres; returns `{merged_groups, removed_rows}`.
+  Future<dynamic> mergeTyreDuplicates() async {
+    final response = await http.post(Uri.parse('$kApiBaseUrl/api/tyres/merge-duplicates'), headers: _createHeaders());
     return _decodeResponse(response);
   }
 

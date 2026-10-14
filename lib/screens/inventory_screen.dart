@@ -38,6 +38,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   bool _loading           = true;
   String? _error;
   String? _filterCategory; // null = all
+  List<dynamic> _dups = [];
 
   @override
   void initState() {
@@ -49,7 +50,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final data = await widget.apiService.getInventory(category: _filterCategory);
-      if (mounted) setState(() => _items = data is List ? data : []);
+      List<dynamic> dups = [];
+      try { dups = await widget.apiService.getInventoryDuplicates(); } catch (_) {}
+      if (mounted) setState(() { _items = data is List ? data : []; _dups = dups; });
     } catch (e) {
       if (mounted) setState(() => _error = e is ApiException ? e.toString() : 'Failed to load inventory.');
     } finally {
@@ -85,6 +88,66 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
   }
 
+  Future<void> _mergeDuplicates() async {
+    String qtys(Map g) => (g['rows'] as List).map((r) => r['quantity']).join(' + ');
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Merge duplicate items?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: _colorHeading)),
+            const SizedBox(height: 12),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  for (final g in _dups)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('${g['name']}: ${qtys(g as Map)} → ${g['merged_quantity']}',
+                          style: const TextStyle(fontSize: 14, color: _colorHeading)),
+                    ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('Quantities are added together and the extra cards are removed. This cannot be undone.',
+                style: TextStyle(fontSize: 12, color: _colorRed)),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel'))),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(backgroundColor: _colorPrimary, foregroundColor: Colors.white),
+                  child: const Text('Merge'),
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final r = await widget.apiService.mergeInventoryDuplicates();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Merged ${r['merged_groups']} item(s), removed ${r['removed_rows']} duplicate card(s)')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e is ApiException ? e.toString() : 'Failed to merge.')));
+      }
+    }
+    _load();
+  }
+
   void _openForm({Map<String, dynamic>? item}) async {
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -115,7 +178,19 @@ class _InventoryScreenState extends State<InventoryScreen> {
             fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white),
         iconTheme: const IconThemeData(color: Colors.white),
         actionsIconTheme: const IconThemeData(color: Colors.white),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
+        actions: [
+          if (_dups.isNotEmpty)
+            Badge(
+              label: Text('${_dups.length}'),
+              offset: const Offset(-6, 6),
+              child: IconButton(
+                tooltip: 'Merge duplicates',
+                icon: const Icon(Icons.merge_type),
+                onPressed: _mergeDuplicates,
+              ),
+            ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(),
@@ -249,6 +324,7 @@ class _ItemCard extends StatelessWidget {
     final unit     = item['unit']?.toString()     ?? 'pcs';
     final minStock = int.tryParse(item['min_stock']?.toString() ?? '5') ?? 5;
     final isLow    = qty <= minStock;
+    final price    = double.tryParse(item['price']?.toString() ?? '') ?? 0;
     final stockColor = qty == 0 ? _colorRed : isLow ? _colorAmber : _colorGreen;
 
     return Container(
@@ -280,6 +356,10 @@ class _ItemCard extends StatelessWidget {
                   _Chip(label: '$qty $unit', color: stockColor),
                   const SizedBox(width: 8),
                   _Chip(label: 'Min: $minStock', color: _colorSubtext),
+                  if (price > 0) ...[
+                    const SizedBox(width: 8),
+                    _Chip(label: '₹${price.toStringAsFixed(price == price.roundToDouble() ? 0 : 2)} each', color: _colorPrimary),
+                  ],
                 ]),
               ],
             ),
@@ -332,6 +412,7 @@ class _ItemFormState extends State<_ItemForm> {
   final _qtyCtrl      = TextEditingController();
   final _unitCtrl     = TextEditingController();
   final _minCtrl      = TextEditingController();
+  final _priceCtrl    = TextEditingController();
   String _category    = 'other';
   bool   _saving      = false;
 
@@ -347,6 +428,8 @@ class _ItemFormState extends State<_ItemForm> {
       _unitCtrl.text = e['unit']?.toString()     ?? 'pcs';
       _minCtrl.text  = (e['min_stock'] ?? 5).toString();
       _category      = e['category']?.toString() ?? 'other';
+      final p = double.tryParse(e['price']?.toString() ?? '') ?? 0;
+      _priceCtrl.text = p > 0 ? p.toString().replaceFirst(RegExp(r'\.0$'), '') : '';
     } else {
       _qtyCtrl.text = '0';
       _unitCtrl.text = 'pcs';
@@ -357,13 +440,17 @@ class _ItemFormState extends State<_ItemForm> {
   @override
   void dispose() {
     _nameCtrl.dispose(); _qtyCtrl.dispose();
-    _unitCtrl.dispose(); _minCtrl.dispose();
+    _unitCtrl.dispose(); _minCtrl.dispose(); _priceCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) { _snack('Name is required.'); return; }
+
+    final priceText = _priceCtrl.text.trim();
+    final price = priceText.isEmpty ? 0.0 : double.tryParse(priceText);
+    if (price == null || price < 0) { _snack('Enter a valid price.'); return; }
 
     setState(() => _saving = true);
     try {
@@ -372,13 +459,18 @@ class _ItemFormState extends State<_ItemForm> {
       final unit = _unitCtrl.text.trim().isEmpty ? 'pcs' : _unitCtrl.text.trim();
 
       if (_isEdit) {
-        await widget.apiService.updateInventoryItem(
+        final res = await widget.apiService.updateInventoryItem(
           widget.existing!['id'].toString(),
-          name: name, category: _category, quantity: qty, unit: unit, minStock: min,
+          name: name, category: _category, quantity: qty, unit: unit, minStock: min, price: price,
         );
+        if (res is Map && res['merged'] == true && mounted) {
+          final d = res['data'] as Map?;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Merged into existing ${d?['name'] ?? name} (now ${d?['quantity']})')));
+        }
       } else {
         final res = await widget.apiService.addInventoryItem(
-          name: name, category: _category, quantity: qty, unit: unit, minStock: min,
+          name: name, category: _category, quantity: qty, unit: unit, minStock: min, price: price,
         );
         if (res is Map && res['merged'] == true && mounted) {
           // Already in stock: backend added to the existing card instead of making a new one
@@ -457,6 +549,8 @@ class _ItemFormState extends State<_ItemForm> {
 
             // Min stock
             _field(_minCtrl, 'Low Stock Alert (min qty)', hint: '5', isNumber: true),
+            const SizedBox(height: 12),
+            _field(_priceCtrl, 'Price per unit (₹)', hint: 'optional', isNumber: true),
             const SizedBox(height: 24),
 
             SizedBox(

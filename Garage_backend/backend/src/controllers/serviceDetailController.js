@@ -116,7 +116,18 @@ const getTyreChangeByJob = async (req, res, next) => {
   }
 };
 
+// GET /api/service-details/parts/job/:job_card_id
+const getPartsByJob = async (req, res, next) => {
+  try {
+    const data = await serviceDetailModel.getPartsUsedByJobId(req.params.job_card_id);
+    res.status(200).json({ success: true, count: data.length, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
+  getPartsByJob,
   createServiceDetail,
   getServiceDetailByJob,
   createTyreChange,

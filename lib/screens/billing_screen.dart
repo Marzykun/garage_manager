@@ -32,25 +32,26 @@ class _BillingScreenState extends State<BillingScreen> {
 
   // Parts priced automatically from the job's logged tyre changes
   List<String> _loggedPartsLines = [];
+  double _tyresAutoTotal = 0;
 
   final TextEditingController _labourCtrl   = TextEditingController(text: '0');
   final TextEditingController _partsCtrl    = TextEditingController(text: '0');
   final TextEditingController _discountCtrl = TextEditingController(text: '0');
+  final TextEditingController _gstCtrl      = TextEditingController(text: '0');
   final TextEditingController _notesCtrl    = TextEditingController();
 
   double get _labour   => double.tryParse(_labourCtrl.text.trim())   ?? 0;
   double get _parts    => double.tryParse(_partsCtrl.text.trim())    ?? 0;
   double get _discount => double.tryParse(_discountCtrl.text.trim()) ?? 0;
   double get _subTotal => _labour + _parts;
-  // Tyre jobs: CGST 9% + SGST 9% on parts only; service jobs: no GST.
-  // An already-saved invoice keeps the rate it was created with.
+  // GST % is editable. Default 18 for tyre bills (on parts only), 0 for service bills
+  // (on labour + parts). A saved invoice prefills its own rate.
   bool _hasTyres = false;
-  double? _savedGstPercent;
-  double get _gstPercent => _savedGstPercent ?? (_hasTyres ? 18 : 0);
+  double get _gstPercent => (double.tryParse(_gstCtrl.text.trim()) ?? 0).clamp(0, 100).toDouble();
   String get _gstLabel => _gstPercent == _gstPercent.roundToDouble()
       ? _gstPercent.toStringAsFixed(0)
-      : _gstPercent.toStringAsFixed(1);
-  double get _gstAmount => _parts * _gstPercent / 100;
+      : _gstPercent.toStringAsFixed(2);
+  double get _gstAmount => ((_hasTyres ? _parts : _subTotal) * _gstPercent / 100 * 100).round() / 100;
   double get _total     => _subTotal + _gstAmount - _discount;
 
   @override
@@ -64,6 +65,7 @@ class _BillingScreenState extends State<BillingScreen> {
     _labourCtrl.dispose();
     _partsCtrl.dispose();
     _discountCtrl.dispose();
+    _gstCtrl.dispose();
     _notesCtrl.dispose();
     super.dispose();
   }
@@ -94,7 +96,8 @@ class _BillingScreenState extends State<BillingScreen> {
             final labour = double.tryParse(inv['labour_charge']?.toString() ?? '0') ?? 0;
             final parts  = double.tryParse(inv['parts_charge']?.toString()  ?? '0') ?? 0;
             final disc   = double.tryParse(inv['discount']?.toString()       ?? '0') ?? 0;
-            _savedGstPercent = double.tryParse(inv['gst_percent']?.toString() ?? '');
+            final savedGst = double.tryParse(inv['gst_percent']?.toString() ?? '');
+            if (savedGst != null) _gstCtrl.text = savedGst.toString().replaceAll(RegExp(r'\.0+$'), '');
             _labourCtrl.text   = labour.toStringAsFixed(0);
             _partsCtrl.text    = parts.toStringAsFixed(0);
             _discountCtrl.text = disc.toStringAsFixed(0);
@@ -130,6 +133,7 @@ class _BillingScreenState extends State<BillingScreen> {
             ? (tc['data'] as List? ?? [])
             : (tc as List? ?? []);
         _hasTyres = rows.isNotEmpty;
+        if (_billPreview == null) _gstCtrl.text = _hasTyres ? '18' : '0';
         double total = 0;
         final lines = <String>[];
         for (final r in rows) {
@@ -139,6 +143,7 @@ class _BillingScreenState extends State<BillingScreen> {
           total += qty * price;
           lines.add('${[r['brand'], r['pattern'], r['size']].where((e) => e != null && e.toString().trim().isNotEmpty).join(' ')} ×$qty = ₹${(qty * price).toStringAsFixed(0)}');
         }
+        _tyresAutoTotal = total;
         if (total > 0) {
           _loggedPartsLines = lines;
           // Prefill only when there's no saved invoice and the field is untouched
@@ -148,6 +153,34 @@ class _BillingScreenState extends State<BillingScreen> {
         }
       } catch (_) {
         // Tyre log unavailable — leave parts manual
+      }
+
+      // Inventory parts logged on the job, priced at the time they were used.
+      // Added on top of the tyres total (older servers without the endpoint: skipped).
+      try {
+        final parts = await widget.apiService.getJobParts(widget.jobId);
+        double total = 0;
+        final lines = <String>[];
+        for (final r in parts) {
+          final qty   = int.tryParse(r['quantity']?.toString() ?? '') ?? 0;
+          final price = double.tryParse(r['unit_price']?.toString() ?? '') ?? 0;
+          if (qty <= 0) continue;
+          total += qty * price;
+          lines.add(price > 0
+              ? '${r['name']} ×$qty = ₹${(qty * price).toStringAsFixed(0)}'
+              : '${r['name']} ×$qty (no price)');
+        }
+        if (lines.isNotEmpty) {
+          _loggedPartsLines = [..._loggedPartsLines, ...lines];
+          if (total > 0 && _billPreview == null) {
+            // Auto-fill = tyres total (already in the field, if untouched) + parts total
+            final cur = double.tryParse(_partsCtrl.text.trim()) ?? 0;
+            final tyresTotal = _tyresAutoTotal;
+            if (cur == tyresTotal) _partsCtrl.text = (tyresTotal + total).toStringAsFixed(0);
+          }
+        }
+      } catch (_) {
+        // Parts endpoint unavailable — leave parts manual
       }
     } catch (error) {
       setState(() {
@@ -198,6 +231,7 @@ class _BillingScreenState extends State<BillingScreen> {
           labourCharge: _labour,
           partsCharge:  _parts,
           discount:     _discount,
+          gstPercent:   _gstPercent,
         );
       } else {
         // Create new invoice
@@ -206,6 +240,7 @@ class _BillingScreenState extends State<BillingScreen> {
           labourCharge: _labour,
           partsCharge:  _parts,
           discount:     _discount,
+          gstPercent:   _gstPercent,
           notes:        _notesCtrl.text.trim(),
         );
       }
@@ -388,6 +423,18 @@ class _BillingScreenState extends State<BillingScreen> {
             ),
           const SizedBox(height: 12),
           _AmountField(ctrl: _discountCtrl, label: 'Discount (₹)',       onChanged: (_) => setState(() {})),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gstCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'GST %',
+              suffixText: '%',
+              helperText: 'Tyre bills: 18% (9% CGST + 9% SGST) on tyres. Service bills: 0% unless you set one.',
+              helperMaxLines: 2,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
           const SizedBox(height: 16),
 
           // ── Live GST summary ──────────────────────────────────────────────
@@ -402,7 +449,7 @@ class _BillingScreenState extends State<BillingScreen> {
               children: [
                 _CalcRow('Labour + Parts',    '₹${_subTotal.toStringAsFixed(2)}',  bold: false),
                 if (_gstPercent > 0)
-                  _CalcRow('GST on parts ($_gstLabel%)', '₹${_gstAmount.toStringAsFixed(2)}', bold: false),
+                  _CalcRow('GST ($_gstLabel%)', '₹${_gstAmount.toStringAsFixed(2)}', bold: false),
                 if (_discount > 0)
                   _CalcRow('Discount',         '−₹${_discount.toStringAsFixed(2)}', bold: false),
                 const Divider(height: 16),

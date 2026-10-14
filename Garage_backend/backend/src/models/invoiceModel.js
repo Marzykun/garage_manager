@@ -6,10 +6,18 @@ const jobHasTyres = async (job_card_id) => {
   return r.rowCount > 0;
 };
 
+const r2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+// Tyre bill: GST on parts only (labour untaxed). Service bill: GST on labour + parts.
+const calcTotals = async (job_card_id, labour_charge, parts_charge, gst_percent, discount) => {
+  const labour = parseFloat(labour_charge), parts = parseFloat(parts_charge);
+  const base = (await jobHasTyres(job_card_id)) ? parts : labour + parts;
+  const gst_amount = r2(base * parseFloat(gst_percent) / 100);
+  return { gst_amount, total_amount: r2(labour + parts + gst_amount - parseFloat(discount)) };
+};
+
 const createInvoice = async (job_card_id, labour_charge, parts_charge, gst_percent, discount, payment_method) => {
-  const subtotal   = parseFloat(labour_charge) + parseFloat(parts_charge);
-  const gst_amount = (parseFloat(parts_charge) * parseFloat(gst_percent)) / 100; // GST on parts only
-  const total_amount = subtotal + gst_amount - parseFloat(discount);
+  const { gst_amount, total_amount } = await calcTotals(job_card_id, labour_charge, parts_charge, gst_percent, discount);
 
   const result = await pool.query(
     `INSERT INTO invoices
@@ -71,9 +79,9 @@ const getInvoiceById = async (id) => {
 };
 
 const updateInvoice = async (id, labour_charge, parts_charge, gst_percent, discount) => {
-  const subtotal    = parseFloat(labour_charge) + parseFloat(parts_charge);
-  const gst_amount  = (parseFloat(parts_charge) * parseFloat(gst_percent)) / 100; // GST on parts only
-  const total_amount = subtotal + gst_amount - parseFloat(discount);
+  const job = await pool.query(`SELECT job_card_id FROM invoices WHERE id = $1`, [id]);
+  if (!job.rows[0]) return undefined;
+  const { gst_amount, total_amount } = await calcTotals(job.rows[0].job_card_id, labour_charge, parts_charge, gst_percent, discount);
 
   const result = await pool.query(
     `UPDATE invoices
@@ -129,7 +137,7 @@ const getInvoicePrintData = async (id) => {
   const invoice = invResult.rows[0];
   if (!invoice) return null;
 
-  const [garageResult, tyreResult, partsResult] = await Promise.all([
+  const [garageResult, tyreResult, partsResult, partLinesResult] = await Promise.all([
     pool.query(
       `SELECT garage_name, address, phone, gstin FROM garage_settings LIMIT 1`
     ),
@@ -147,6 +155,11 @@ const getInvoicePrintData = async (id) => {
        ORDER BY created_at ASC`,
       [invoice.job_card_id]
     ),
+    pool.query(
+      `SELECT name, quantity, COALESCE(unit_price, 0) AS unit_price FROM job_parts_used
+       WHERE job_card_id = $1 ORDER BY created_at ASC`,
+      [invoice.job_card_id]
+    ),
   ]);
 
   return {
@@ -154,6 +167,7 @@ const getInvoicePrintData = async (id) => {
     invoice,
     garage: garageResult.rows[0] || {},
     tyres: tyreResult.rows,
+    parts_lines: partLinesResult.rows,
     parts_used: partsResult.rows.map((r) => r.parts_used),
   };
 };

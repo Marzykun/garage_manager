@@ -9,6 +9,14 @@ const currentGstPercent = async () => {
   return Number.isFinite(p) ? p : 18;
 };
 
+// Returns {value} (undefined when absent) or {error} for a non-number / outside 0-100.
+const parseGstPercent = (raw) => {
+  if (raw === undefined || raw === null || raw === '') return { value: undefined };
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < 0 || v > 100) return { error: 'gst_percent must be a number between 0 and 100' };
+  return { value: v };
+};
+
 // POST /api/invoices
 const createInvoice = async (req, res, next) => {
   try {
@@ -17,6 +25,8 @@ const createInvoice = async (req, res, next) => {
     const parts_charge   = req.body.parts_charge   || 0;
     const discount       = req.body.discount       || 0;
     const payment_method = req.body.payment_method;
+    const gst = parseGstPercent(req.body.gst_percent);
+    if (gst.error) return res.status(400).json({ success: false, message: gst.error });
 
     if (!job_card_id) {
       return res.status(400).json({
@@ -43,8 +53,8 @@ const createInvoice = async (req, res, next) => {
       });
     }
 
-    // Tyre sales bill: CGST 9% + SGST 9% on the parts amount. Service bill: no GST.
-    const gst_percent = (await invoiceModel.jobHasTyres(job_card_id)) ? 18 : 0;
+    // Client value wins; older apps omit it: tyre bill 18%, service bill 0%.
+    const gst_percent = gst.value ?? ((await invoiceModel.jobHasTyres(job_card_id)) ? 18 : 0);
 
     const invoice = await invoiceModel.createInvoice(
       job_card_id,
@@ -190,11 +200,13 @@ const updateInvoice = async (req, res, next) => {
     const labour_charge = req.body.labour_charge ?? 0;
     const parts_charge  = req.body.parts_charge  ?? 0;
     const discount      = req.body.discount      ?? 0;
+    const gst = parseGstPercent(req.body.gst_percent);
+    if (gst.error) return res.status(400).json({ success: false, message: gst.error });
 
-    // Always keep the rate the invoice was created with (never re-price old bills).
+    // No rate sent: keep the one the invoice was created with.
     const existing = await invoiceModel.getInvoiceById(req.params.id);
     if (!existing) return res.status(404).json({ success: false, message: 'Invoice not found' });
-    const gst_percent = existing.gst_percent;
+    const gst_percent = gst.value ?? existing.gst_percent;
 
     const invoice = await invoiceModel.updateInvoice(
       req.params.id, labour_charge, parts_charge, gst_percent, discount

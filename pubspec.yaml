@@ -43,6 +43,7 @@ dependencies:
   printing: ^5.15.1
   share_plus: ^12.0.2
   path_provider: ^2.1.6
+  file_picker: 11.0.3
 
 dev_dependencies:
   flutter_test:

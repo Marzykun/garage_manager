@@ -20,7 +20,7 @@ const CHECK_EVERY_MS = 6 * 60 * 60 * 1000; // re-check whether one is due every 
 const SHARED_DIR   = '/storage/emulated/0/GarageManager/backups';
 const INTERNAL_DIR = path.join(os.homedir(), 'garage-backups');
 
-const NAME_RE = /^garage-backup-\d{4}-\d{2}-\d{2}-\d{6}(-auto|-manual|-pre-restore)?\.dump$/;
+const NAME_RE = /^garage-backup-\d{4}-\d{2}-\d{2}-\d{6}(-auto|-manual|-pre-restore|-uploaded)?\.dump$/;
 
 // pg_dump/pg_restore are on PATH in Termux; PG_BIN lets a dev machine point at them.
 const bin = (name) => (process.env.PG_BIN ? path.join(process.env.PG_BIN, name) : name);
@@ -83,7 +83,7 @@ const listBackups = () => {
     .filter((f) => NAME_RE.test(f))
     .map((name) => {
       const st = fs.statSync(path.join(dir, name));
-      const kind = (name.match(/-(auto|manual|pre-restore)\.dump$/) || [])[1] || 'manual';
+      const kind = (name.match(/-(auto|manual|pre-restore|uploaded)\.dump$/) || [])[1] || 'manual';
       return { name, size: st.size, created_at: st.mtime.toISOString(), kind };
     })
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -130,6 +130,13 @@ const backupPath = (name) => {
 // Replaces the current database with the backup's contents. A safety backup of
 // the current data is taken first, and the restore runs in one transaction so
 // a failure leaves the database untouched.
+const restoreFile = async (file, label) => {
+  const safety = await createBackup('pre-restore');
+  await run('pg_restore', ['--clean', '--if-exists', '--no-owner', '--single-transaction', '-d', pgEnv().PGDATABASE, file]);
+  console.log(`[backup] restored ${label} (safety copy: ${safety.name})`);
+  return { restored: label, safety_backup: safety.name };
+};
+
 const restoreBackup = async (name) => {
   const file = backupPath(name);
   if (!file) {
@@ -137,15 +144,30 @@ const restoreBackup = async (name) => {
     err.status = 404;
     throw err;
   }
-  const safety = await createBackup('pre-restore');
-  await run('pg_restore', ['--clean', '--if-exists', '--no-owner', '--single-transaction', '-d', pgEnv().PGDATABASE, file]);
-  console.log(`[backup] restored ${name} (safety copy: ${safety.name})`);
-  return { restored: name, safety_backup: safety.name };
+  return restoreFile(file, name);
+};
+
+// Restore from a dump uploaded by the app (e.g. received over WhatsApp).
+const restoreUploaded = async (buf) => {
+  if (!Buffer.isBuffer(buf) || buf.length < 5 || buf.toString('latin1', 0, 5) !== 'PGDMP') {
+    const err = new Error('This is not a Garage Manager backup file.');
+    err.status = 400;
+    throw err;
+  }
+  const name = `garage-backup-${stamp()}-uploaded.dump`;
+  const file = path.join(backupDir().dir, name);
+  fs.writeFileSync(file, buf);
+  try {
+    return await restoreFile(file, name);
+  } catch (err) {
+    try { fs.unlinkSync(file); } catch (_) { /* nothing to clean */ }
+    throw err;
+  }
 };
 
 const status = () => {
   const { dir, shared, backups } = listBackups();
-  const last = backups.find((b) => b.kind !== 'pre-restore');
+  const last = backups.find((b) => b.kind !== 'pre-restore' && b.kind !== 'uploaded');
   const next = last
     ? new Date(new Date(last.created_at).getTime() + INTERVAL_DAYS * 86400000).toISOString()
     : null;
@@ -167,4 +189,4 @@ const startScheduler = () => {
   setInterval(runIfDue, CHECK_EVERY_MS).unref();
 };
 
-module.exports = { createBackup, listBackups, restoreBackup, backupPath, status, startScheduler };
+module.exports = { createBackup, listBackups, restoreBackup, restoreUploaded, backupPath, status, startScheduler };

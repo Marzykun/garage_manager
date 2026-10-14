@@ -20,6 +20,7 @@ class TyreStockScreen extends StatefulWidget {
 
 class _TyreStockScreenState extends State<TyreStockScreen> {
   List<dynamic> _tyres = [];
+  List<dynamic> _dupes = [];
   bool _loading = true;
   String? _error;
 
@@ -30,6 +31,7 @@ class _TyreStockScreenState extends State<TyreStockScreen> {
   }
 
   Future<void> _load() async {
+    _loadDuplicates();
     setState(() { _loading = true; _error = null; });
     try {
       final data = await widget.apiService.getTyres();
@@ -38,6 +40,87 @@ class _TyreStockScreenState extends State<TyreStockScreen> {
       if (mounted) setState(() => _error = e is ApiException ? e.toString() : 'Failed to load tyre stock.');
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // Owner-only endpoint: any failure (e.g. 403 for staff) just hides the action.
+  Future<void> _loadDuplicates() async {
+    try {
+      final d = await widget.apiService.getTyreDuplicates();
+      if (mounted) setState(() => _dupes = d);
+    } catch (_) {
+      if (mounted) setState(() => _dupes = []);
+    }
+  }
+
+  Future<void> _openMerge() async {
+    String line(Map g) {
+      final name = [g['brand'], g['model'], g['size'], g['vehicle_type']]
+          .where((e) => e != null && e.toString().trim().isNotEmpty).join(' ');
+      final qtys = (g['rows'] as List).map((r) => r['quantity'] ?? 0).join(' + ');
+      return '$name: $qtys → ${g['merged_quantity']}';
+    }
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Merge duplicate tyres',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: _colorHeading)),
+              const SizedBox(height: 12),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final g in _dupes)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(line(g as Map), style: const TextStyle(fontSize: 14, color: _colorHeading)),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _colorPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: Text('Merge ${_dupes.length} groups. This cannot be undone.'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final res = await widget.apiService.mergeTyreDuplicates();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Merged ${res['merged_groups']} groups (${res['removed_rows']} duplicate rows removed)')));
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is ApiException ? e.toString() : 'Failed to merge tyres.')),
+        );
+      }
     }
   }
 
@@ -108,6 +191,15 @@ class _TyreStockScreenState extends State<TyreStockScreen> {
             icon: const Icon(Icons.compare_arrows_rounded, size: 20),
             label: const Text('Compare'),
           ),
+          if (_dupes.isNotEmpty)
+            IconButton(
+              tooltip: 'Merge duplicates',
+              icon: Badge(
+                label: Text('${_dupes.length}'),
+                child: const Icon(Icons.merge_type),
+              ),
+              onPressed: _openMerge,
+            ),
           IconButton(
             tooltip: 'Purchase history',
             icon: const Icon(Icons.history),
@@ -352,7 +444,7 @@ class _TyreFormState extends State<_TyreForm> {
 
       Object result = true;
       if (_isEdit) {
-        await widget.apiService.updateTyre(
+        final res = await widget.apiService.updateTyre(
           widget.existing!['id'].toString(),
           brand:       brand,
           size:        size,
@@ -364,6 +456,12 @@ class _TyreFormState extends State<_TyreForm> {
           price:       price,
           offer:       _offerCtrl.text.trim().isEmpty ? null : _offerCtrl.text.trim(),
         );
+        if (res is Map && res['merged'] == true) {
+          final t = (res['data'] as Map?) ?? {};
+          final name = [t['brand'], t['model'], t['size']]
+              .where((e) => e != null && e.toString().trim().isNotEmpty).join(' ');
+          result = 'Merged into existing $name (now ${t['quantity']})';
+        }
       } else {
         final res = await widget.apiService.addTyre(
           unitCost:    double.tryParse(_costCtrl.text.trim()),

@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:garage_manager/screens/login_screen.dart';
 import 'package:garage_manager/services/api_service.dart';
 
 const _colorPrimary = Color(0xFF2D3A4A);
@@ -118,6 +120,76 @@ class _BackupSectionState extends State<BackupSection> {
     }
   }
 
+  Future<void> _restoreFromFile() async {
+    final picked = await FilePicker.pickFiles(type: FileType.any, withData: true);
+    final bytes = picked?.files.single.bytes;
+    if (bytes == null || !mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore from this file?'),
+        content: Text(
+          'File: ${picked!.files.single.name}\n\n'
+          'All current data (jobs, customers, invoices, stock) will be replaced with '
+          'the contents of this file. A safety copy of the current data is kept first.\n\n'
+          'You will need to log in again afterwards.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: _colorDanger),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Expanded(child: Text('Restoring data… please wait')),
+          ]),
+        ),
+      ),
+    );
+    String? error;
+    try {
+      await widget.apiService.restoreBackupUpload(bytes);
+    } catch (e) {
+      error = e is ApiException ? e.toString() : 'Restore failed — your data was not changed.';
+    }
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // progress dialog
+    setState(() => _busy = false);
+    if (error != null) {
+      _snack(error);
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Data restored'),
+        content: const Text('Please log in again. The login (username and password) is now the one from the restored backup.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+      ),
+    );
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => LoginScreen(apiService: ApiService())),
+      (_) => false,
+    );
+  }
+
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -146,6 +218,9 @@ class _BackupSectionState extends State<BackupSection> {
     final keep = s?['keep'] ?? 12;
     final last = (s?['last_backup'] as Map?)?.cast<String, dynamic>();
     final shared = s?['shared'] == true;
+    final lastAt = DateTime.tryParse(last?['created_at']?.toString() ?? '');
+    final days = lastAt == null ? null : DateTime.now().difference(lastAt).inDays;
+    final stale = days == null || days > 35;
     final backups = _backups;
     final visible = _showAll ? backups : backups.take(3).toList();
 
@@ -173,10 +248,14 @@ class _BackupSectionState extends State<BackupSection> {
             const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator()))
           else ...[
             _StatusRow(
-              icon: last == null ? Icons.warning_amber_rounded : Icons.check_circle_rounded,
-              color: last == null ? _colorWarn : _colorGood,
-              text: last == null ? 'No backup yet' : 'Last backup: ${_fmt(last['created_at'])}',
+              icon: stale ? Icons.warning_amber_rounded : Icons.check_circle_rounded,
+              color: stale ? Colors.orange.shade800 : _colorGood,
+              text: last == null
+                  ? 'No backup yet'
+                  : 'Last backup: ${days == 0 ? 'today' : '$days days ago'} (${_fmt(last['created_at'])})',
             ),
+            const Text('Send a backup to your WhatsApp every month.',
+                style: TextStyle(fontSize: 12, color: _colorSubtext)),
             if (s['next_due'] != null)
               _StatusRow(
                 icon: Icons.schedule_rounded,
@@ -204,10 +283,20 @@ class _BackupSectionState extends State<BackupSection> {
                 label: const Text('Back Up Now'),
               ),
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _restoreFromFile,
+                icon: const Icon(Icons.upload_file_rounded, size: 18),
+                label: const Text('Restore from file'),
+              ),
+            ),
             const SizedBox(height: 10),
             const Text(
-              'Tip: once a month, tap Share on the newest backup and send it to WhatsApp '
-              'or Google Drive, so a copy exists even if this phone is lost or broken.',
+              'New or reset phone? Log in, then tap Restore from file and pick the backup '
+              'you saved (WhatsApp, Drive or Downloads).',
               style: TextStyle(fontSize: 12, color: _colorSubtext, height: 1.4),
             ),
             if (backups.isNotEmpty) ...[
@@ -274,10 +363,10 @@ class _BackupTile extends StatelessWidget {
               Text(subtitle, style: const TextStyle(fontSize: 12, color: _colorSubtext)),
             ]),
           ),
-          IconButton(
-            tooltip: 'Share (WhatsApp, Drive…)',
+          TextButton.icon(
             onPressed: enabled ? onShare : null,
-            icon: const Icon(Icons.share_rounded, size: 20),
+            icon: const Icon(Icons.share_rounded, size: 18),
+            label: const Text('Share'),
           ),
           IconButton(
             tooltip: 'Restore',

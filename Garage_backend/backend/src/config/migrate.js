@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS job_parts_used (
   created_at        TIMESTAMPTZ DEFAULT now()
 );
   `);
+
+  // Selling price per unit; job lines snapshot it when the part is logged
+  await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS price NUMERIC(10,2) DEFAULT 0`);
+  await pool.query(`ALTER TABLE job_parts_used ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2) DEFAULT 0`);
 };
 
 module.exports = migrate;

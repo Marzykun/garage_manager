@@ -50,13 +50,17 @@ const updateTyre = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'brand and size are required' });
     }
 
-    const tyre = await tyreModel.updateTyre(
+    const found = await tyreModel.updateTyre(
       req.params.id, brand, model || null, size, vehicle_type || null,
       quantity || 0, price || null, offer || null, pattern || null
     );
 
-    if (!tyre) return res.status(404).json({ success: false, message: 'Tyre not found' });
-    res.status(200).json({ success: true, message: 'Tyre updated', data: tyre });
+    if (!found) return res.status(404).json({ success: false, message: 'Tyre not found' });
+    const { merged, ...tyre } = found;
+    res.status(200).json({
+      success: true, merged,
+      message: merged ? 'Merged into existing tyre' : 'Tyre updated', data: tyre,
+    });
   } catch (err) { next(err); }
 };
 
@@ -91,11 +95,26 @@ const deleteTyre = async (req, res, next) => {
   }
 };
 
-// GET /api/tyres/purchases — last 50 purchases from the dealer
+// GET /api/tyres/purchases ï¿½ last 50 purchases from the dealer
 const getPurchases = async (req, res, next) => {
   try {
     res.status(200).json({ success: true, data: await tyreModel.getPurchases() });
   } catch (err) { next(err); }
 };
 
-module.exports = { getPurchases, addTyre, getAllTyres, getTyreById, updateTyre, fitTyre, deleteTyre };
+// GET /api/tyres/duplicates
+const getDuplicates = async (req, res, next) => {
+  try {
+    const groups = await tyreModel.getDuplicateGroups();
+    res.status(200).json({ success: true, count: groups.length, data: groups });
+  } catch (err) { next(err); }
+};
+
+// POST /api/tyres/merge-duplicates
+const mergeDuplicates = async (req, res, next) => {
+  try {
+    res.status(200).json({ success: true, ...(await tyreModel.mergeDuplicates()) });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getDuplicates, mergeDuplicates, getPurchases, addTyre, getAllTyres, getTyreById, updateTyre, fitTyre, deleteTyre };
