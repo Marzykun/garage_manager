@@ -209,6 +209,9 @@ START SERVER BUTTON (optional test):
     cat ~/garage-backend.log
 
    and send us a photo of the screen.
+ - Login says  role "postgres" does not exist, or Postgres will not
+   start ("Address already in use"): follow RESET_DATABASE_INSTRUCTIONS.txt
+   (only after checking there is no real data on the phone).
  - "Start Server" gives a Termux error: check Part 2 was typed
    exactly, then restart the phone.
 ==============================================================

@@ -31,6 +31,10 @@ Type each line below EXACTLY, and press Enter after each one.
 Some steps take a few minutes — wait for the typing prompt ($) to
 come back before typing the next line.
 
+  !! If any step below says "already exists", this phone is ALREADY set
+  !! up — do NOT delete anything. Use UPDATE_INSTRUCTIONS.txt instead.
+  !! If the server or login is broken, see RESET_DATABASE_INSTRUCTIONS.txt.
+
 STEP 1 — install the software:
 
     pkg update -y && pkg upgrade -y

@@ -1,0 +1,100 @@
+==============================================================
+ GARAGE MANAGER — RESET THE DATABASE (CLEAN START)
+ Use ONLY when the server will not start or login says:
+   role "postgres" does not exist
+ or Postgres errors like "Address already in use" / "No such
+ file or directory ... .s.PGSQL.5432" that a restart did not fix.
+==============================================================
+
+READ FIRST
+ - After this reset the app is EMPTY: no customers, jobs or
+   invoices.
+ - Nothing is deleted: the old database folder is only RENAMED
+   (postgresql-old), so the old data can be put back.
+ - If the client already has REAL records on this phone, STOP and
+   send us a photo of the problem first.
+ - In Termux, type each line exactly and press Enter. Wait for the
+   $ sign to come back before typing the next line.
+
+--------------------------------------------------------------
+ STEP 1 — STOP EVERYTHING
+--------------------------------------------------------------
+
+    pkill -f "node server.js"
+    pkill postgres; sleep 3
+
+--------------------------------------------------------------
+ STEP 2 — MOVE THE OLD DATABASE ASIDE  (NOT deleted)
+--------------------------------------------------------------
+
+    mv $PREFIX/var/lib/postgresql $PREFIX/var/lib/postgresql-old
+
+--------------------------------------------------------------
+ STEP 3 — CREATE A FRESH DATABASE AND START IT
+--------------------------------------------------------------
+
+    initdb $PREFIX/var/lib/postgresql
+    pg_ctl -D $PREFIX/var/lib/postgresql -l $PREFIX/var/lib/postgresql/postgres.log -w start
+
+ You should see "server started".
+ If it says "Address already in use" or "could not start server":
+ restart the phone, wait 1 minute, open Termux and type ONLY the
+ pg_ctl line above again.
+
+--------------------------------------------------------------
+ STEP 4 — CREATE THE USER, DATABASE AND TABLES
+--------------------------------------------------------------
+
+    createuser --superuser postgres
+    createdb garage_db
+    psql -U postgres -d garage_db -f ~/garage_manager/Garage_backend/backend/schema.sql
+
+ Many lines saying CREATE TABLE should scroll past. That is correct.
+
+--------------------------------------------------------------
+ STEP 5 — USE THE IP ADDRESS (fixes "ENOTFOUND localhost")
+--------------------------------------------------------------
+
+    sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' ~/garage_manager/Garage_backend/backend/.env
+
+--------------------------------------------------------------
+ STEP 6 — START THE GARAGE SERVER (in the background)
+--------------------------------------------------------------
+
+    nohup sh ~/.termux/boot/start-garage.sh > /dev/null 2>&1 &
+
+ Do NOT start it by typing "node server.js" — that stops as soon as
+ Termux is closed.
+
+--------------------------------------------------------------
+ STEP 7 — TEST
+--------------------------------------------------------------
+ 1. Wait about 10 seconds. Open the Garage Manager app.
+ 2. The login screen should show a green "Server online".
+ 3. Log in as Owner:  username  owner   password  owner123
+ 4. Go to Settings and CHANGE BOTH PASSWORDS right away
+    (Mechanic Password and Owner Credentials).
+ 5. Settings > Garage Info: fill in the garage name, address,
+    phone and GSTIN, then Save Garage Info.
+
+ Finally, restart the phone once, wait 1 minute, and check the app
+ still says "Server online" by itself.
+
+--------------------------------------------------------------
+ BRING THE OLD DATA BACK  (only if needed, ask us first)
+--------------------------------------------------------------
+ The old database is still in:  $PREFIX/var/lib/postgresql-old
+ Or, if the phone has monthly backups in the storage folder
+ GarageManager/backups, they can be restored with pg_restore.
+ Send us a photo of the folder and we will give the exact command.
+ Do not delete postgresql-old until the new setup has worked for
+ a few days.
+
+--------------------------------------------------------------
+ STILL NOT WORKING?
+--------------------------------------------------------------
+ Send us a photo of the screen after typing each of these:
+
+    tail -25 $PREFIX/var/lib/postgresql/postgres.log
+    tail -20 ~/garage-backend.log
+==============================================================
