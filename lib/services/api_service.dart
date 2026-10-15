@@ -515,6 +515,7 @@ class ApiService {
     String? remarks,
     String? partsUsed,
     List<Map<String, dynamic>> inventoryItems = const [], // [{inventory_id, quantity}]
+    List<Map<String, dynamic>> tyreItems = const [], // [{tyre_id, quantity}]
   }) async {
     final uri = Uri.parse('$kApiBaseUrl/api/service-details');
     final response = await http.post(
@@ -526,6 +527,7 @@ class ApiService {
         if (remarks != null && remarks.isNotEmpty) 'remarks': remarks,
         if (partsUsed != null && partsUsed.isNotEmpty) 'parts_used': partsUsed,
         if (inventoryItems.isNotEmpty) 'inventory_items': inventoryItems,
+        if (tyreItems.isNotEmpty) 'tyre_items': tyreItems,
       }),
     );
     return _decodeResponse(response);

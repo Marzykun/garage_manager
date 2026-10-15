@@ -52,6 +52,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   // Inventory parts picked for this log entry: {item: inventory row, qty: int}
   final List<Map<String, dynamic>> _pickedParts = [];
   List<dynamic> _inventory = [];
+  // Tyres from tyre stock picked for this entry: {item: tyre_stock row, qty: int}
+  final List<Map<String, dynamic>> _pickedTyres = [];
+  List<dynamic> _allTyres = [];
 
   // Tyre change fields
   List<dynamic> _tyreStock  = [];
@@ -69,7 +72,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     super.initState();
     _loadRecords();
     if (_isTyreChange) _loadTyreStock();
-    if (!_isTyreChange && !_isBalancing && !_isAlignment) _loadInventory();
+    if (!_isTyreChange && !_isBalancing && !_isAlignment) { _loadInventory(); _loadAllTyres(); }
   }
 
   @override
@@ -111,6 +114,26 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       final data = await widget.apiService.getInventory();
       if (mounted) setState(() => _inventory = data is List ? data : []);
     } catch (_) {}
+  }
+
+  Future<void> _loadAllTyres() async {
+    try {
+      final data = await widget.apiService.getTyres();
+      if (mounted) setState(() => _allTyres = data is List ? data : []);
+    } catch (_) {}
+  }
+
+  Future<void> _pickTyre() async {
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PartPickerSheet(
+        items: _allTyres.cast<Map<String, dynamic>>(),
+        takenIds: _pickedTyres.map((p) => p['item']['id'].toString()).toSet(),
+        tyres: true,
+      ),
+    );
+    if (picked != null) setState(() => _pickedTyres.add({'item': picked, 'qty': 1}));
   }
 
   int _stockOf(dynamic i) => int.tryParse(i['quantity']?.toString() ?? '0') ?? 0;
@@ -174,6 +197,13 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             return;
           }
         }
+        for (final p in _pickedTyres) {
+          final stock = _stockOf(p['item']);
+          if (stock < (p['qty'] as int)) {
+            _showSnack(stock <= 0 ? 'No stock for ${_tyreLabel(p['item'])}.' : 'Only $stock left for ${_tyreLabel(p['item'])}.');
+            return;
+          }
+        }
         await widget.apiService.saveServiceDetail(
           jobCardId:   widget.jobId,
           serviceType: widget.serviceType,
@@ -183,10 +213,15 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             for (final p in _pickedParts)
               {'inventory_id': p['item']['id'].toString(), 'quantity': p['qty']},
           ],
+          tyreItems: [
+            for (final p in _pickedTyres)
+              {'tyre_id': p['item']['id'].toString(), 'quantity': p['qty']},
+          ],
         );
         _partsCtrl.clear();
-        setState(_pickedParts.clear);
+        setState(() { _pickedParts.clear(); _pickedTyres.clear(); });
         _loadInventory(); // refresh stock counts
+        _loadAllTyres();
       }
       _remarksCtrl.clear();
       _showSnack('Saved successfully.');
@@ -362,6 +397,15 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       label: Text(_inventory.isEmpty ? 'No inventory items' : 'Add part from inventory'),
     ),
     const SizedBox(height: 16),
+    const _FieldLabel('Tyres from Stock (optional)'),
+    const SizedBox(height: 8),
+    for (var i = 0; i < _pickedTyres.length; i++) _pickedRow(i, tyre: true),
+    OutlinedButton.icon(
+      onPressed: _allTyres.isEmpty ? null : _pickTyre,
+      icon: const Icon(Icons.add, size: 18),
+      label: Text(_allTyres.isEmpty ? 'No tyres in stock list' : 'Add tyre from stock'),
+    ),
+    const SizedBox(height: 16),
     const _FieldLabel('Other Parts (typed, optional)'),
     const SizedBox(height: 8),
     TextField(
@@ -373,14 +417,18 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     const SizedBox(height: 16),
   ];
 
-  Widget _pickedRow(int i) {
-    final p = _pickedParts[i];
+  static String _tyreLabel(dynamic t) => [t['brand'], t['model'], t['size']]
+      .where((v) => v != null && v.toString().isNotEmpty).join(' ');
+
+  Widget _pickedRow(int i, {bool tyre = false}) {
+    final list = tyre ? _pickedTyres : _pickedParts;
+    final p = list[i];
     final stock = _stockOf(p['item']);
     final qty = p['qty'] as int;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(children: [
-        Expanded(child: Text('${p['item']['name']}  ($stock in stock)',
+        Expanded(child: Text('${tyre ? _tyreLabel(p['item']) : p['item']['name']}  ($stock in stock)',
             style: const TextStyle(fontSize: 14, color: _colorHeading))),
         IconButton(icon: const Icon(Icons.remove_circle_outline),
             onPressed: qty > 1 ? () => setState(() => p['qty'] = qty - 1) : null),
@@ -388,7 +436,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         IconButton(icon: const Icon(Icons.add_circle_outline),
             onPressed: qty < stock ? () => setState(() => p['qty'] = qty + 1) : null),
         IconButton(icon: const Icon(Icons.close, size: 18),
-            onPressed: () => setState(() => _pickedParts.removeAt(i))),
+            onPressed: () => setState(() => list.removeAt(i))),
       ]),
     );
   }
@@ -787,9 +835,10 @@ class _WeightField extends StatelessWidget {
 
 /// Bottom sheet: search inventory, tap an in-stock item to pick it.
 class _PartPickerSheet extends StatefulWidget {
-  const _PartPickerSheet({required this.items, required this.takenIds});
+  const _PartPickerSheet({required this.items, required this.takenIds, this.tyres = false});
   final List<Map<String, dynamic>> items;
   final Set<String> takenIds;
+  final bool tyres; // list tyre_stock rows instead of inventory parts
 
   @override
   State<_PartPickerSheet> createState() => _PartPickerSheetState();
@@ -798,11 +847,15 @@ class _PartPickerSheet extends StatefulWidget {
 class _PartPickerSheetState extends State<_PartPickerSheet> {
   String _q = '';
 
+  String _title(Map<String, dynamic> i) => widget.tyres
+      ? [i['brand'], i['model'], i['size']].where((v) => v != null && v.toString().isNotEmpty).join(' ')
+      : i['name'].toString();
+
   @override
   Widget build(BuildContext context) {
     final shown = widget.items.where((i) =>
         !widget.takenIds.contains(i['id'].toString()) &&
-        i['name'].toString().toLowerCase().contains(_q.toLowerCase())).toList();
+        _title(i).toLowerCase().contains(_q.toLowerCase())).toList();
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SizedBox(
@@ -812,7 +865,7 @@ class _PartPickerSheetState extends State<_PartPickerSheet> {
             padding: const EdgeInsets.all(12),
             child: TextField(
               autofocus: true,
-              decoration: const InputDecoration(hintText: 'Search inventory…', prefixIcon: Icon(Icons.search)),
+              decoration: InputDecoration(hintText: widget.tyres ? 'Search tyres…' : 'Search inventory…', prefixIcon: const Icon(Icons.search)),
               onChanged: (v) => setState(() => _q = v),
             ),
           ),
@@ -823,8 +876,11 @@ class _PartPickerSheetState extends State<_PartPickerSheet> {
                   final q = int.tryParse(i['quantity']?.toString() ?? '0') ?? 0;
                   return ListTile(
                     enabled: q > 0,
-                    title: Text(i['name'].toString()),
-                    subtitle: Text(i['category'].toString().replaceAll('_', ' ')),
+                    title: Text(_title(i)),
+                    subtitle: Text(widget.tyres
+                        ? [i['pattern'], i['vehicle_type'], if (i['price'] != null) 'Rs ${i['price']}']
+                            .where((v) => v != null && v.toString().isNotEmpty).join(' · ')
+                        : i['category'].toString().replaceAll('_', ' ')),
                     trailing: Text(q > 0 ? '$q in stock' : 'No stock'),
                     onTap: q > 0 ? () => Navigator.pop(context, i) : null,
                   );

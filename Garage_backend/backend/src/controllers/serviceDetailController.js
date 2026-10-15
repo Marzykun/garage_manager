@@ -28,7 +28,8 @@ const createServiceDetail = async (req, res, next) => {
       service_type,
       remarks   || null,
       parts_used || null,
-      Array.isArray(req.body.inventory_items) ? req.body.inventory_items : []
+      Array.isArray(req.body.inventory_items) ? req.body.inventory_items : [],
+      Array.isArray(req.body.tyre_items) ? req.body.tyre_items : []
     );
 
     res.status(201).json({
@@ -38,7 +39,7 @@ const createServiceDetail = async (req, res, next) => {
     });
 
   } catch (err) {
-    if (/^(No stock|Only \d+ left|Inventory item not found|Invalid inventory)/.test(err.message)) {
+    if (/^(No stock|Only \d+ left|Inventory item not found|Invalid inventory|Invalid tyre|Tyre not found)/.test(err.message)) {
       return res.status(400).json({ success: false, message: err.message });
     }
     next(err);

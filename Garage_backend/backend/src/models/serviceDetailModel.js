@@ -3,7 +3,7 @@ const pool = require('../config/db');
 // Add generic service details. `items` = [{inventory_id, quantity}] picked from
 // inventory: stock is checked + deducted and the lines stored in ONE transaction,
 // and their "name ×qty" text is folded into parts_used (invoices read that column).
-const createServiceDetail = async (job_card_id, service_type, remarks, parts_used, items = []) => {
+const createServiceDetail = async (job_card_id, service_type, remarks, parts_used, items = [], tyreItems = []) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -21,7 +21,23 @@ const createServiceDetail = async (job_card_id, service_type, remarks, parts_use
       await client.query(`UPDATE inventory SET quantity = quantity - $1 WHERE id = $2`, [qty, it.inventory_id]);
       lines.push({ inventory_id: it.inventory_id, quantity: qty, name, price: price || 0 });
     }
-    const partsText = [...lines.map((l) => `${l.name} x${l.quantity}`), parts_used]
+    // Tyres from tyre stock: same lock/check/decrement as a Tyre Change, same
+    // tyre_change_details insert (billing and the Cash Bill read that table).
+    const tyres = [];
+    for (const it of tyreItems) {
+      const qty = parseInt(it.quantity, 10);
+      if (!it.tyre_id || !(qty > 0)) throw new Error('Invalid tyre or quantity');
+      const t = await client.query(
+        `SELECT id, brand, model, size, quantity FROM tyre_stock WHERE id = $1 FOR UPDATE`, [it.tyre_id]);
+      if (t.rows.length === 0) throw new Error('Tyre not found');
+      const { brand, model, size, quantity: stock } = t.rows[0];
+      const name = [brand, model, size].filter(Boolean).join(' ');
+      if (stock < qty) throw new Error(stock <= 0 ? `No stock for ${name}` : `Only ${stock} left for ${name}`);
+      await client.query(`UPDATE tyre_stock SET quantity = quantity - $1 WHERE id = $2`, [qty, it.tyre_id]);
+      tyres.push({ tyre_id: it.tyre_id, quantity: qty, name, remarks: it.remarks || null });
+    }
+    const partsText = [...lines.map((l) => `${l.name} x${l.quantity}`),
+      ...tyres.map((t) => `${t.name} x${t.quantity}`), parts_used]
       .filter(Boolean).join(', ') || null;
     const result = await client.query(
       `INSERT INTO service_details (job_card_id, service_type, remarks, parts_used)
@@ -34,6 +50,13 @@ const createServiceDetail = async (job_card_id, service_type, remarks, parts_use
         `INSERT INTO job_parts_used (job_card_id, service_detail_id, inventory_id, quantity, name, unit_price)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [job_card_id, result.rows[0].id, l.inventory_id, l.quantity, l.name, l.price]
+      );
+    }
+    for (const t of tyres) {
+      await client.query(
+        `INSERT INTO tyre_change_details (job_card_id, tyre_id, quantity, remarks)
+         VALUES ($1, $2, $3, $4)`,
+        [job_card_id, t.tyre_id, t.quantity, t.remarks]
       );
     }
     await client.query('COMMIT');

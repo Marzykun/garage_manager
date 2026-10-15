@@ -9,6 +9,9 @@
 !! Cannot GET /api/reports/..." errors.
 
 WHAT THIS UPDATE ADDS
+ - Full Service log entry: besides parts, you can now pick TYRES from
+   the tyre stock ("Add tyre from stock"). Stock goes down, the cost is
+   added to the invoice, and the job prints as a tyre bill with GST.
  - Dashboard and Queue have arrows and a calendar next to the date to
    look at any earlier day (jobs, counts, progress). A job left Pending
    or In Progress from an earlier day stays on today's list until it
