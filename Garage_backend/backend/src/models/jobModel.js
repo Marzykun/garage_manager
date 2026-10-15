@@ -37,6 +37,8 @@ const getAllJobs = async (date) => {
        JOIN customers c ON c.id = j.customer_id
        JOIN vehicles  v ON v.id = j.vehicle_id
        WHERE DATE(j.created_at AT TIME ZONE 'Asia/Kolkata') = $1
+          OR (j.status IN ('pending', 'in_progress')
+              AND $1::date = (now() AT TIME ZONE 'Asia/Kolkata')::date)
        ORDER BY j.created_at DESC`
     : `SELECT
         j.*,
