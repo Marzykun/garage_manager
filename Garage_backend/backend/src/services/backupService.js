@@ -127,12 +127,34 @@ const backupPath = (name) => {
   return fs.existsSync(file) ? file : null;
 };
 
+// Wipes schema public and loads a dump into it. No --clean: a dump from an older
+// schema would leave newer tables (and their FKs) behind and block the drops.
+const loadDump = async (file) => {
+  await run('psql', ['-v', 'ON_ERROR_STOP=1', '-q', '-c',
+    'DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public;']);
+  await run('pg_restore', ['--no-owner', '--exit-on-error', '-d', pgEnv().PGDATABASE, file]);
+};
+
 // Replaces the current database with the backup's contents. A safety backup of
-// the current data is taken first, and the restore runs in one transaction so
-// a failure leaves the database untouched.
+// the current data is taken first; if the load fails it is loaded back, then the
+// schema is brought up to date (older backups lack newer tables/columns).
 const restoreFile = async (file, label) => {
   const safety = await createBackup('pre-restore');
-  await run('pg_restore', ['--clean', '--if-exists', '--no-owner', '--single-transaction', '-d', pgEnv().PGDATABASE, file]);
+  try {
+    await loadDump(file);
+  } catch (err) {
+    console.error(`[backup] restore of ${label} failed, putting previous data back:`, err.message);
+    try {
+      await loadDump(path.join(backupDir().dir, safety.name));
+    } catch (e2) {
+      err.message = `Restore failed AND rollback failed (safety copy ${safety.name}): ${e2.message}`;
+      throw err;
+    }
+    const e = new Error(`Restore failed; your previous data was put back. (${err.message})`);
+    e.status = 500;
+    throw e;
+  }
+  await require('../config/migrate')();
   console.log(`[backup] restored ${label} (safety copy: ${safety.name})`);
   return { restored: label, safety_backup: safety.name };
 };
