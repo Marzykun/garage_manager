@@ -150,6 +150,29 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
   String? _updatingJobId;
   int _selectedIndex = 0;
   Timer? _pollTimer;
+  DateTime _selectedDate = _dateOnly(DateTime.now());
+  int _loadSeq = 0; // ignore responses from superseded requests
+
+  static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+  bool get _isToday => _selectedDate == _dateOnly(DateTime.now());
+
+  void _setDate(DateTime d) {
+    d = _dateOnly(d);
+    if (d == _selectedDate) return;
+    setState(() => _selectedDate = d);
+    _loadJobs();
+  }
+
+  Future<void> _pickDate() async {
+    final today = _dateOnly(DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate.isAfter(today) ? today : _selectedDate,
+      firstDate: DateTime(2024, 1, 1),
+      lastDate: today,
+    );
+    if (picked != null) _setDate(picked);
+  }
 
   // Cached derived lists — only recomputed when _todayJobs changes
   List<dynamic> _pendingJobs = [];
@@ -187,13 +210,15 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
   }
 
   Future<void> _loadJobs() async {
+    final seq = ++_loadSeq;
+    final date = _selectedDate;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final response = await widget.apiService.getTodayJobs();
+      final response = await widget.apiService.getJobsForDate(date);
       List<dynamic> raw = [];
       if (response is List) {
         raw = response;
@@ -201,26 +226,31 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
         raw = response['jobs'] as List<dynamic>;
       }
       // Strip cancelled jobs — they must not appear on the board
-      _todayJobs = raw
+      final jobs = raw
           .where((j) => !jobStatusValue(j).toLowerCase().contains('cancel'))
           .toList();
-      _attachCreatedJobs();
+      if (seq != _loadSeq) return;
+      _todayJobs = jobs;
+      if (_isToday) _attachCreatedJobs();
       _recomputeDerived();
 
       if (_isOwner) {
         try {
           final appts = await widget.apiService.getAppointments(status: 'pending');
+          if (seq != _loadSeq) return;
           _pendingAppointments = appts is List ? appts : [];
         } catch (_) {
+          if (seq != _loadSeq) return;
           _pendingAppointments = [];
         }
       }
     } catch (error) {
+      if (seq != _loadSeq) return;
       _errorMessage = error is ApiException ? error.toString() : 'Failed to load jobs.';
       _todayJobs = [];
       _recomputeDerived();
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && seq == _loadSeq) setState(() => _isLoading = false);
     }
   }
 
@@ -485,7 +515,10 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
         builder: (_) => NewJobCardScreen(apiService: widget.apiService),
       ),
     );
-    if (created == true) _loadJobs();
+    if (created == true) {
+      _selectedDate = _dateOnly(DateTime.now()); // new job belongs to today
+      _loadJobs();
+    }
   }
 
   // ─── Queue Tab ────────────────────────────────────────────────────────────
@@ -499,7 +532,10 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: _FilterRow(
+              child: Column(children: [
+                _dateNav(),
+                const SizedBox(height: 12),
+                _FilterRow(
                 filters: _filters,
                 selected: _selectedFilter,
                 onSelect: (f) => setState(() {
@@ -507,6 +543,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                   _recomputeDerived();
                 }),
               ),
+              ]),
             ),
           ),
           if (_errorMessage != null)
@@ -583,7 +620,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                     Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade300),
                     const SizedBox(height: 12),
                     Text(
-                      _todayJobs.isEmpty ? 'No jobs today' : 'No $_selectedFilter jobs',
+                      _todayJobs.isEmpty ? (_isToday ? 'No jobs today' : 'No jobs on $_dateLabel.') : 'No $_selectedFilter jobs',
                       style: const TextStyle(fontSize: 15, color: Color(0xFF9AA3B0)),
                     ),
                   ],
@@ -623,6 +660,18 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
     );
   }
 
+  static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  String get _dateLabel => '${_selectedDate.day} ${_months[_selectedDate.month - 1]} ${_selectedDate.year}';
+
+  Widget _dateNav() => _DateHeader(
+        date: _selectedDate,
+        isToday: _isToday,
+        onPrev: () => _setDate(_selectedDate.subtract(const Duration(days: 1))),
+        onNext: _isToday ? null : () => _setDate(_selectedDate.add(const Duration(days: 1))),
+        onPick: _pickDate,
+        onToday: () => _setDate(DateTime.now()),
+      );
+
   bool get _isOwner => widget.role == 'owner';
 
   // ─── Dashboard Tab ────────────────────────────────────────────────────────
@@ -647,7 +696,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _DateHeader(),
+            _dateNav(),
             const SizedBox(height: 20),
             Row(children: [
               Expanded(child: _StatCard(label: 'Total',       value: '$total',      color: _colorPrimary,    icon: Icons.receipt_long_outlined, onTap: () => _goToQueue('All'))),
@@ -685,6 +734,8 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
             ],
             _ActivitySection(
               jobs: _todayJobs,
+              title: _isToday ? "Today's Activity" : 'Activity',
+              emptyText: _isToday ? 'No jobs recorded today.' : 'No jobs on $_dateLabel.',
               onViewAll: () => setState(() => _selectedIndex = 0),
             ),
           ],
@@ -1358,8 +1409,10 @@ class _StatCard extends StatelessWidget {
 }
 
 class _ActivitySection extends StatelessWidget {
-  const _ActivitySection({required this.jobs, required this.onViewAll});
+  const _ActivitySection({required this.jobs, required this.title, required this.emptyText, required this.onViewAll});
   final List<dynamic> jobs;
+  final String title;
+  final String emptyText;
   final VoidCallback onViewAll;
 
   @override
@@ -1374,13 +1427,13 @@ class _ActivitySection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Today's Activity",
+          Text(title,
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _colorHeading)),
           const SizedBox(height: 16),
           if (jobs.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('No jobs recorded today.', style: TextStyle(fontSize: 14, color: _colorSubtext)),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(emptyText, style: TextStyle(fontSize: 14, color: _colorSubtext)),
             )
           else ...[
             ...jobs.take(5).map((job) {
@@ -1480,22 +1533,89 @@ class _InventoryTile extends StatelessWidget {
 }
 
 class _DateHeader extends StatelessWidget {
-  const _DateHeader();
+  const _DateHeader({
+    required this.date,
+    required this.isToday,
+    required this.onPrev,
+    required this.onNext,
+    required this.onPick,
+    required this.onToday,
+  });
+  final DateTime date;
+  final bool isToday;
+  final VoidCallback onPrev;
+  final VoidCallback? onNext;
+  final VoidCallback onPick;
+  final VoidCallback onToday;
 
   static const _days   = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final label = '${date.day} ${_months[date.month - 1]} ${date.year}';
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(_days[now.weekday - 1],
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: _colorHeading, letterSpacing: -0.5)),
-        const SizedBox(height: 2),
-        Text('${now.day} ${_months[now.month - 1]} ${now.year}',
-          style: const TextStyle(fontSize: 14, color: _colorSubtext)),
+        Row(children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left_rounded, color: _colorPrimary),
+            onPressed: onPrev,
+            tooltip: 'Previous day',
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: onPick,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(_days[date.weekday - 1],
+                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: _colorHeading, letterSpacing: -0.5)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.calendar_month_outlined, size: 18, color: _colorSubtext),
+                  ]),
+                  const SizedBox(height: 2),
+                  Text(label, style: const TextStyle(fontSize: 14, color: _colorSubtext)),
+                ]),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.chevron_right_rounded, color: onNext == null ? _colorMuted : _colorPrimary),
+            onPressed: onNext,
+            tooltip: 'Next day',
+          ),
+        ]),
+        if (!isToday)
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: const BoxDecoration(
+              color: _colorPendingBg,
+              borderRadius: BorderRadius.all(Radius.circular(10)),
+            ),
+            child: Row(children: [
+              Expanded(
+                child: Text('Viewing $label \u2014 tap Today to return',
+                  style: const TextStyle(fontSize: 12, color: _colorBodyText)),
+              ),
+              ActionChip(
+                label: const Text('Today'),
+                onPressed: onToday,
+                visualDensity: VisualDensity.compact,
+                backgroundColor: _colorPrimary,
+                labelStyle: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                side: BorderSide.none,
+              ),
+            ]),
+          ),
       ],
     );
   }

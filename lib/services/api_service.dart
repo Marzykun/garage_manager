@@ -209,9 +209,9 @@ class ApiService {
     return _decodeResponse(jobResp);
   }
 
-  Future<dynamic> getTodayJobs() async {
-    // Pass today's date in IST so the backend filters server-side
-    final now = DateTime.now();
+  Future<dynamic> getTodayJobs() => getJobsForDate(DateTime.now());
+
+  Future<dynamic> getJobsForDate(DateTime now) async {
     final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final uri = Uri.parse('$kApiBaseUrl/api/jobs?date=$dateStr');
     final response = await http.get(uri, headers: _createHeaders());

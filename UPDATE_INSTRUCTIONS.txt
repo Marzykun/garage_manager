@@ -9,6 +9,10 @@
 !! Cannot GET /api/reports/..." errors.
 
 WHAT THIS UPDATE ADDS
+ - Dashboard and Queue have arrows and a calendar next to the date to
+   look at any earlier day (jobs, counts, progress). A job left Pending
+   or In Progress from an earlier day stays on today's list until it
+   is completed (needs the server update in Part 1).
  - GST % is now a box on the Generate Invoice screen. It starts at
    18 for jobs with tyres and 0 for service-only jobs, and the owner
    can change it on any bill. Tyre bill: split into CGST/SGST.
