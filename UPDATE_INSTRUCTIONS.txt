@@ -12,6 +12,11 @@ WHAT THIS UPDATE ADDS
  - Full Service log entry: besides parts, you can now pick TYRES from
    the tyre stock ("Add tyre from stock"). Stock goes down, the cost is
    added to the invoice, and the job prints as a tyre bill with GST.
+ - Tidy-ups: the bill GST line says what it is charged on ("on parts"),
+   tyre names show brand + model + pattern everywhere, Mark as
+   Completed warns about a missing invoice straight away, removed jobs
+   no longer count as new customers, and Revenue by Category counts
+   tyres sold in a Full Service under Tyre.
  - Dashboard and Queue have arrows and a calendar next to the date to
    look at any earlier day (jobs, counts, progress). A job left Pending
    or In Progress from an earlier day stays on today's list until it

@@ -96,8 +96,8 @@ class InvoicePdf {
         _money2(qty * price),
       ]);
     }
-    // Inventory parts: name in Particulars, qty in the Tyre/qty column
-    final partRows = [for (final l in partLines) [l.name, '', '${l.qty}', _money2(l.amount)]];
+    // Inventory parts: qty goes in the particulars text; the Tyre column is for tyres only
+    final partRows = [for (final l in partLines) ['${l.name} × ${l.qty}', '', '', _money2(l.amount)]];
     final partSum = partLines.fold<double>(0, (a, l) => a + l.amount);
     final itemised = tyreSum + partSum;
     if ((tyreRows.isNotEmpty || partRows.isNotEmpty) && itemised <= parts + 0.005) {
@@ -106,7 +106,7 @@ class InvoicePdf {
       if (parts - itemised > 0.005) rows.add(['Other parts & consumables', '', '', _money2(parts - itemised)]);
     } else if (parts > 0) {
       // Parts charge was set by hand and doesn't match the tyre log.
-      final fitted = [...tyreRows, ...partRows].map((r) => '${r[0]} ${r[1]} x${r[2]}'.trim());
+      final fitted = [...tyreRows, ...partRows].map((r) => '${r[0]} ${r[1]}${r[2].isEmpty ? '' : ' x${r[2]}'}'.trim());
       final detail = [...fitted, ...partsUsed].join('; ');
       rows.add(['Parts & materials${detail.isEmpty ? '' : ' ($detail)'}', '', '', _money2(parts)]);
     }

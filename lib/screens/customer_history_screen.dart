@@ -497,7 +497,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             ]),
             const Divider(height: 28),
             Row(children: [
-              _Stat('Visits', '${c['visit_count'] ?? 0}'),
+              _Stat((c['visit_count'] ?? 0) == 1 ? 'Visit' : 'Visits', '${c['visit_count'] ?? 0}'),
               _Stat('Total billed', _money.format(spent)),
               _Stat('Last visit', _relativeDate(c['last_visit'])),
             ]),

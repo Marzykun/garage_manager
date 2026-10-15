@@ -163,9 +163,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ]),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: _StatCard(label: isToday ? 'New Jobs Today' : 'New Jobs · $rangeName', value: _fmt(jobs['total_jobs']), color: _colorPrimary,  icon: Icons.receipt_long_outlined)),
+          Expanded(child: _StatCard(label: isToday ? 'New Jobs Today' : 'New Jobs', subtitle: isToday ? null : rangeName, value: _fmt(jobs['total_jobs']), color: _colorPrimary,  icon: Icons.receipt_long_outlined)),
           const SizedBox(width: 12),
-          Expanded(child: _StatCard(label: isToday ? 'New Customers' : 'New Customers · $rangeName', value: _fmt(_newCustomers.length), color: _colorInfo,    icon: Icons.person_add_outlined,
+          Expanded(child: _StatCard(label: 'New Customers', subtitle: isToday ? null : rangeName, value: _fmt(_newCustomers.length), color: _colorInfo,    icon: Icons.person_add_outlined,
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => NewCustomersScreen(apiService: widget.apiService),
               )))),
@@ -306,7 +306,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           if (methods.isNotEmpty) ...[
             const Divider(height: 20),
             Row(children: [
-              Expanded(child: Text('Total · $totalCount paid bills',
+              Expanded(child: Text('Total · $totalCount paid ${totalCount == 1 ? 'bill' : 'bills'}',
                   style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorHeading))),
               Text(_rupees(totalAmount),
                   style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _colorSuccess)),
@@ -314,7 +314,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ],
           if (unpaidCount > 0) ...[
             const SizedBox(height: 6),
-            Text('$unpaidCount bills unpaid · ${_rupees(double.tryParse(unpaid['amount'].toString()) ?? 0)}',
+            Text('$unpaidCount ${unpaidCount == 1 ? 'bill' : 'bills'} unpaid · ${_rupees(double.tryParse(unpaid['amount'].toString()) ?? 0)}',
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _colorWarning)),
           ],
         ]),
@@ -352,7 +352,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(children: [
                   Expanded(
-                    child: Text('${r['brand'] ?? ''} ${r['size'] ?? ''}'.trim(),
+                    child: Text(
+                        [r['brand'], r['model'], r['pattern'], r['size']]
+                            .where((e) => e != null && e.toString().trim().isNotEmpty).join(' '),
                         style: const TextStyle(fontSize: 13, color: _colorBodyText)),
                   ),
                   Text('×${r['tyres']}  ${_rupees(double.tryParse(r['cost'].toString()) ?? 0)}',
@@ -519,9 +521,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
               children: [
                 Row(children: [
                   Expanded(child: Text(type, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _colorHeading))),
-                  Text('$completed/$total done', style: const TextStyle(fontSize: 12, color: _colorSubtext)),
-                  const SizedBox(width: 8),
-                  Text('$pct%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _colorPrimary)),
+                  Text('$completed of $total done · ${(double.tryParse(pct) ?? 0).round()}% of jobs',
+                      style: const TextStyle(fontSize: 12, color: _colorSubtext)),
                 ]),
                 const SizedBox(height: 6),
                 ClipRRect(
@@ -690,8 +691,9 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _StatCard extends StatelessWidget {
-  const _StatCard({required this.label, required this.value, required this.color, required this.icon, this.onTap});
+  const _StatCard({required this.label, required this.value, required this.color, required this.icon, this.onTap, this.subtitle});
   final String label, value;
+  final String? subtitle;
   final Color color;
   final IconData icon;
   final VoidCallback? onTap;
@@ -714,6 +716,9 @@ class _StatCard extends StatelessWidget {
             const SizedBox(width: 6),
             Icon(icon, size: 16, color: color),
           ]),
+          if (subtitle != null)
+            Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: _colorSubtext)),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: color, letterSpacing: -0.5))),

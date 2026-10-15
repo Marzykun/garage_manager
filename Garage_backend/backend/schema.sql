@@ -122,6 +122,7 @@ CREATE TABLE tyre_purchases (
   tyre_id    UUID REFERENCES tyre_stock(id) ON DELETE SET NULL,
   brand      TEXT,
   name       TEXT,
+  pattern    TEXT,
   size       TEXT,
   quantity   INTEGER NOT NULL,
   unit_cost  NUMERIC(10,2),

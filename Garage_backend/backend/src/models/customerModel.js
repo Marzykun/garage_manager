@@ -14,7 +14,8 @@ const getCustomerByPhone = async (phone) => {
 // number plate, vehicle make/model/type), a service they've had done, and a
 // vehicle type. Plates match ignoring spaces/dashes ("KA 01-AB 1234").
 const searchCustomers = async ({ q, service, vehicleType, sort = 'name', limit = 30, offset = 0 }) => {
-  const where  = [];
+  // Customers whose only jobs were cancelled/removed are hidden.
+  const where  = [`EXISTS (SELECT 1 FROM job_cards j0 WHERE j0.customer_id = c.id AND j0.status <> 'cancelled')`];
   const params = [];
 
   if (q) {

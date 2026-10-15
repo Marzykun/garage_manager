@@ -280,6 +280,17 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
     if (_updatingJobId != null) return; // ignore double-taps while saving
 
     if (status.contains('progress')) {
+      // Check the invoice first so a missing one skips the pointless confirm.
+      try {
+        await widget.apiService.getBill(id);
+      } catch (error) {
+        if (error is ApiException && error.statusCode == 404) {
+          await _showInvoiceMissing(job);
+          return;
+        }
+        // Any other failure: carry on, the server still blocks completion without an invoice.
+      }
+      if (!mounted) return;
       final ok = await _confirm(
         title: 'Mark job as completed?',
         message: '${jobVehicle(job)} — ${jobCustomer(job)}',
@@ -294,26 +305,29 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
       await _loadJobs();
     } catch (error) {
       if (error is ApiException && error.statusCode == 409) {
-        if (mounted) {
-          final open = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Invoice not generated'),
-              content: const Text('Generate the invoice first, then mark the job as completed.'),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Close')),
-                TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Open Billing')),
-              ],
-            ),
-          );
-          if (open == true) _openBilling(job);
-        }
+        await _showInvoiceMissing(job);
       } else {
         _showSnack(error is ApiException ? error.toString() : 'Failed to update status.');
       }
     } finally {
       if (mounted) setState(() => _updatingJobId = null);
     }
+  }
+
+  Future<void> _showInvoiceMissing(dynamic job) async {
+    if (!mounted) return;
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Invoice not generated'),
+        content: const Text('Generate the invoice first, then mark the job as completed.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Close')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Open Billing')),
+        ],
+      ),
+    );
+    if (open == true) _openBilling(job);
   }
 
   void _openBilling(dynamic job) {
@@ -476,7 +490,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
     final ok = await _confirm(
       title: 'Remove this job?',
       message: '${jobVehicle(job)} — ${jobCustomer(job)}\n\n'
-          'It will be cancelled and taken off the board.',
+          'This removes the job from the board. Any tyres and parts used on it go back into stock.',
       action: 'Remove',
       destructive: true,
     );
@@ -500,7 +514,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
         _createdJobs.removeWhere((c) => jobId(c) == id);
         _recomputeDerived();
       });
-      _showSnack('Job cancelled.');
+      _showSnack('Job removed. Stock restored.');
     } catch (e) {
       _showSnack('Failed to cancel: ${e is ApiException ? e.responseBody : e.toString()}');
     }
@@ -596,6 +610,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                       child: _PendingCard(
                         job: _pendingJobs[i],
                         isAccepting: jobId(_pendingJobs[i]) != null && _updatingJobId == jobId(_pendingJobs[i]),
+                        canAccept: _isToday,
                         onAccept: () => _acceptNewJob(_pendingJobs[i]),
                         onEdit: () => _editJob(_pendingJobs[i]),
                         onCancel: () => _cancelJob(_pendingJobs[i]),
@@ -612,21 +627,23 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
               child: Center(child: CircularProgressIndicator()),
             )
           else if (_filteredJobs.isEmpty)
-            SliverFillRemaining(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade300),
-                    const SizedBox(height: 12),
-                    Text(
-                      _todayJobs.isEmpty ? (_isToday ? 'No jobs today' : 'No jobs on $_dateLabel.') : 'No $_selectedFilter jobs',
-                      style: const TextStyle(fontSize: 15, color: Color(0xFF9AA3B0)),
-                    ),
-                  ],
+            // Empty message only when nothing at all shows (awaiting + in-progress + completed).
+            ...[if (_pendingAppointments.isEmpty && _pendingJobs.isEmpty)
+              SliverFillRemaining(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade300),
+                      const SizedBox(height: 12),
+                      Text(
+                        _selectedFilter == 'All' ? (_isToday ? 'No jobs today.' : 'No jobs on $_dateLabel.') : 'No $_selectedFilter jobs.',
+                        style: const TextStyle(fontSize: 15, color: Color(0xFF9AA3B0)),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            )
+              )]
           else ...[
             SliverToBoxAdapter(
               child: Padding(
@@ -643,6 +660,7 @@ class _QueueBoardScreenState extends State<QueueBoardScreen> {
                     child: _JobCard(
                       job: _filteredJobs[i],
                       isUpdating: jobId(_filteredJobs[i]) != null && _updatingJobId == jobId(_filteredJobs[i]),
+                      canComplete: _isToday,
                       onUpdateStatus: () => _updateJobStatus(_filteredJobs[i]),
                       onEdit: () => _editJob(_filteredJobs[i]),
                       onCancel: () => _cancelJob(_filteredJobs[i]),
@@ -897,9 +915,11 @@ class _PendingCard extends StatelessWidget {
     required this.onAccept,
     required this.onEdit,
     required this.onCancel,
+    this.canAccept = true,
   });
 
   final dynamic job;
+  final bool canAccept;
   final bool isAccepting;
   final VoidCallback onAccept;
   final VoidCallback onEdit;
@@ -989,8 +1009,8 @@ class _PendingCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   Wrap(spacing: 6, runSpacing: 6, children: services.map((s) => _ServiceChip(label: s)).toList()),
                 ],
-                const SizedBox(height: 14),
-                SizedBox(
+                if (canAccept) const SizedBox(height: 14),
+                if (canAccept) SizedBox(
                   height: 44,
                   child: ElevatedButton(
                     onPressed: isAccepting ? null : onAccept,
@@ -1184,9 +1204,11 @@ class _JobCard extends StatelessWidget {
     required this.onCancel,
     required this.onBilling,
     required this.onLogDetails,
+    this.canComplete = true,
   });
 
   final dynamic job;
+  final bool canComplete;
   final bool isUpdating;
   final VoidCallback onUpdateStatus;
   final VoidCallback onEdit;
@@ -1272,7 +1294,7 @@ class _JobCard extends StatelessWidget {
                                 if (v == 'details')    onLogDetails();
                               },
                               itemBuilder: (_) => [
-                                if (status.toLowerCase().contains('progress'))
+                                if (canComplete && status.toLowerCase().contains('progress'))
                                   const PopupMenuItem(value: 'complete', child: Text('Mark as Completed')),
                                 const PopupMenuItem(value: 'edit',    child: Text('Edit Details')),
                                 const PopupMenuItem(value: 'details', child: Text('Log Details')),

@@ -37,9 +37,9 @@ const addTyre = async (brand, model, size, vehicle_type, quantity, price, offer,
       )).rows[0];
     }
     await client.query(
-      `INSERT INTO tyre_purchases (tyre_id, brand, name, size, quantity, unit_cost, dealer)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [row.id, row.brand, row.model, row.size, quantity, unit_cost, dealer]
+      `INSERT INTO tyre_purchases (tyre_id, brand, name, pattern, size, quantity, unit_cost, dealer)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [row.id, row.brand, row.model, row.pattern, row.size, quantity, unit_cost, dealer]
     );
     await client.query('COMMIT');
     return { ...row, merged };

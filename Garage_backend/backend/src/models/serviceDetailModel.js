@@ -2,7 +2,7 @@ const pool = require('../config/db');
 
 // Add generic service details. `items` = [{inventory_id, quantity}] picked from
 // inventory: stock is checked + deducted and the lines stored in ONE transaction,
-// and their "name ×qty" text is folded into parts_used (invoices read that column).
+// and their "name ï¿½qty" text is folded into parts_used (invoices read that column).
 const createServiceDetail = async (job_card_id, service_type, remarks, parts_used, items = [], tyreItems = []) => {
   const client = await pool.connect();
   try {
@@ -28,10 +28,10 @@ const createServiceDetail = async (job_card_id, service_type, remarks, parts_use
       const qty = parseInt(it.quantity, 10);
       if (!it.tyre_id || !(qty > 0)) throw new Error('Invalid tyre or quantity');
       const t = await client.query(
-        `SELECT id, brand, model, size, quantity FROM tyre_stock WHERE id = $1 FOR UPDATE`, [it.tyre_id]);
+        `SELECT id, brand, model, pattern, size, quantity FROM tyre_stock WHERE id = $1 FOR UPDATE`, [it.tyre_id]);
       if (t.rows.length === 0) throw new Error('Tyre not found');
-      const { brand, model, size, quantity: stock } = t.rows[0];
-      const name = [brand, model, size].filter(Boolean).join(' ');
+      const { brand, model, pattern, size, quantity: stock } = t.rows[0];
+      const name = [brand, model, pattern, size].filter(Boolean).join(' ');
       if (stock < qty) throw new Error(stock <= 0 ? `No stock for ${name}` : `Only ${stock} left for ${name}`);
       await client.query(`UPDATE tyre_stock SET quantity = quantity - $1 WHERE id = $2`, [qty, it.tyre_id]);
       tyres.push({ tyre_id: it.tyre_id, quantity: qty, name, remarks: it.remarks || null });

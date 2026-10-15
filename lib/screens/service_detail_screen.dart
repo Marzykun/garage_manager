@@ -417,7 +417,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     const SizedBox(height: 16),
   ];
 
-  static String _tyreLabel(dynamic t) => [t['brand'], t['model'], t['size']]
+  static String _tyreLabel(dynamic t) => [t['brand'], t['model'], t['pattern'], t['size']]
       .where((v) => v != null && v.toString().isNotEmpty).join(' ');
 
   Widget _pickedRow(int i, {bool tyre = false}) {
@@ -434,7 +434,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             onPressed: qty > 1 ? () => setState(() => p['qty'] = qty - 1) : null),
         Text('$qty', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         IconButton(icon: const Icon(Icons.add_circle_outline),
-            onPressed: qty < stock ? () => setState(() => p['qty'] = qty + 1) : null),
+            onPressed: () => qty < stock ? setState(() => p['qty'] = qty + 1) : _showSnack('Only $stock in stock')),
         IconButton(icon: const Icon(Icons.close, size: 18),
             onPressed: () => setState(() => list.removeAt(i))),
       ]),
@@ -535,7 +535,11 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           icon: Icons.add,
           onTap: () {
             final max = int.tryParse(_selectedTyre?['quantity']?.toString() ?? '4') ?? 4;
-            if (_tyreQty < max) setState(() => _tyreQty++);
+            if (_tyreQty < max) {
+              setState(() => _tyreQty++);
+            } else if (_selectedTyre != null) {
+              _showSnack('Only $max in stock');
+            }
           },
         ),
         if (_selectedTyre != null) ...[
@@ -848,7 +852,7 @@ class _PartPickerSheetState extends State<_PartPickerSheet> {
   String _q = '';
 
   String _title(Map<String, dynamic> i) => widget.tyres
-      ? [i['brand'], i['model'], i['size']].where((v) => v != null && v.toString().isNotEmpty).join(' ')
+      ? [i['brand'], i['model'], i['pattern'], i['size']].where((v) => v != null && v.toString().isNotEmpty).join(' ')
       : i['name'].toString();
 
   @override

@@ -83,6 +83,22 @@ void main() {
     }
   });
 
+  test('tyre bill with a tyre line and a non-tyre part line builds', () async {
+    final t = await InvoicePdf.build({
+      'bill_type': 'tyre',
+      'invoice': {...base, 'parts_charge': '6888'}, // 2 x 2969 + 950
+      'garage': garage,
+      'tyres': [
+        {'brand': 'CEAT', 'model': 'Milaze', 'pattern': 'Sport', 'size': '145/80R12', 'price': 2969, 'quantity': 2},
+      ],
+      'parts_lines': [
+        {'name': 'engine oil', 'quantity': 1, 'unit_price': '950.00'},
+      ],
+      'parts_used': [],
+    });
+    expect(t.length, greaterThan(1000));
+  });
+
   test('builds tyre and service PDFs', () async {
     final tyre = await InvoicePdf.build({
       'bill_type': 'tyre',

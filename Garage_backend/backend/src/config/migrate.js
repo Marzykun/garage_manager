@@ -23,6 +23,9 @@ const migrate = async () => {
   // Tyre tread pattern / design name (e.g. "ZLX", "Wanderer Street")
   await pool.query(`ALTER TABLE tyre_stock ADD COLUMN IF NOT EXISTS pattern TEXT`);
 
+  // Pattern snapshot on purchases (name = model); older rows fall back to tyre_stock in reports
+  await pool.query(`ALTER TABLE tyre_purchases ADD COLUMN IF NOT EXISTS pattern TEXT`);
+
   // Odometer reading taken when the job came in (vehicles.km_run keeps the latest)
   await pool.query(`ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS km_reading INTEGER`);
 

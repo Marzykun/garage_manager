@@ -51,6 +51,8 @@ class _BillingScreenState extends State<BillingScreen> {
   String get _gstLabel => _gstPercent == _gstPercent.roundToDouble()
       ? _gstPercent.toStringAsFixed(0)
       : _gstPercent.toStringAsFixed(2);
+  // One row label for both the live summary and the saved-invoice summary.
+  String get _gstRowLabel => 'GST ($_gstLabel% on ${_hasTyres ? 'parts' : 'labour + parts'})';
   double get _gstAmount => ((_hasTyres ? _parts : _subTotal) * _gstPercent / 100 * 100).round() / 100;
   double get _total     => _subTotal + _gstAmount - _discount;
 
@@ -141,7 +143,7 @@ class _BillingScreenState extends State<BillingScreen> {
           final price = double.tryParse(r['price']?.toString() ?? '') ?? 0;
           if (qty <= 0 || price <= 0) continue;
           total += qty * price;
-          lines.add('${[r['brand'], r['pattern'], r['size']].where((e) => e != null && e.toString().trim().isNotEmpty).join(' ')} ×$qty = ₹${(qty * price).toStringAsFixed(0)}');
+          lines.add('${[r['brand'], r['model'], r['pattern'], r['size']].where((e) => e != null && e.toString().trim().isNotEmpty).join(' ')} ×$qty = ₹${(qty * price).toStringAsFixed(0)}');
         }
         _tyresAutoTotal = total;
         if (total > 0) {
@@ -449,7 +451,7 @@ class _BillingScreenState extends State<BillingScreen> {
               children: [
                 _CalcRow('Labour + Parts',    '₹${_subTotal.toStringAsFixed(2)}',  bold: false),
                 if (_gstPercent > 0)
-                  _CalcRow('GST ($_gstLabel%)', '₹${_gstAmount.toStringAsFixed(2)}', bold: false),
+                  _CalcRow(_gstRowLabel, '₹${_gstAmount.toStringAsFixed(2)}', bold: false),
                 if (_discount > 0)
                   _CalcRow('Discount',         '−₹${_discount.toStringAsFixed(2)}', bold: false),
                 const Divider(height: 16),
@@ -521,7 +523,7 @@ class _BillingScreenState extends State<BillingScreen> {
                   _CalcRow('Labour',  '₹${(_billPreview!['labour'] as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
                   _CalcRow('Parts',   '₹${(_billPreview!['parts']  as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
                   if (_gstPercent > 0)
-                    _CalcRow('GST $_gstLabel%', '₹${(_billPreview!['gst']    as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
+                    _CalcRow(_gstRowLabel, '₹${(_billPreview!['gst']    as num?)?.toStringAsFixed(2) ?? '0.00'}', bold: false),
                   if ((_billPreview!['discount'] as num?) != null && (_billPreview!['discount'] as num) > 0)
                     _CalcRow('Discount', '−₹${(_billPreview!['discount'] as num).toStringAsFixed(2)}', bold: false),
                   const Divider(height: 16),

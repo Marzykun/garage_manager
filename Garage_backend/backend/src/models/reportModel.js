@@ -289,6 +289,7 @@ const getNewCustomers = async (from_date, to_date) => {
        WHERE j.customer_id = c.id) AS total_spent
      FROM customers c
      WHERE DATE(c.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+       AND EXISTS (SELECT 1 FROM job_cards j WHERE j.customer_id = c.id AND j.status <> 'cancelled')
      ORDER BY c.created_at DESC`,
     [from_date, to_date]
   );
@@ -308,17 +309,34 @@ const CATEGORY_SQL = `
     ELSE 'other'
   END`;
 
+// Tyres logged on a non-tyre job (e.g. Full Service) are split out to 'tyre':
+// tyre_amt = sum(qty x stock price), capped at the invoice's parts_charge (same
+// basis as billing). GST/discount stay with the job's own category (the
+// remainder), so category totals add up exactly to the invoice totals.
+// An invoice with tyres counts once in each of its two categories.
 const getRevenueByCategory = async (from_date, to_date) => {
   const result = await pool.query(
-    `SELECT
-      ${CATEGORY_SQL} AS category,
-      COUNT(i.id)::int AS invoices,
-      COALESCE(SUM(i.total_amount), 0) AS billed,
-      COALESCE(SUM(i.total_amount) FILTER (WHERE i.payment_status = 'paid'), 0) AS received,
-      COALESCE(SUM(i.total_amount) FILTER (WHERE i.payment_status = 'pending'), 0) AS pending
-     FROM invoices i
-     JOIN job_cards j ON j.id = i.job_card_id
-     WHERE DATE(i.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+    `WITH inv AS (
+       SELECT i.id, i.payment_status, i.total_amount,
+         ${CATEGORY_SQL} AS cat,
+         CASE WHEN j.service_type = 'tyre_change' THEN 0 ELSE LEAST(i.parts_charge,
+           COALESCE((SELECT SUM(tcd.quantity * COALESCE(t.price, 0))
+                     FROM tyre_change_details tcd JOIN tyre_stock t ON t.id = tcd.tyre_id
+                     WHERE tcd.job_card_id = j.id), 0)) END AS tyre_amt
+       FROM invoices i
+       JOIN job_cards j ON j.id = i.job_card_id
+       WHERE DATE(i.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2
+     ), split AS (
+       SELECT cat AS category, id, payment_status, total_amount - tyre_amt AS amt FROM inv
+       UNION ALL
+       SELECT 'tyre', id, payment_status, tyre_amt FROM inv WHERE tyre_amt > 0
+     )
+     SELECT category,
+       COUNT(DISTINCT id)::int AS invoices,
+       COALESCE(SUM(amt), 0) AS billed,
+       COALESCE(SUM(amt) FILTER (WHERE payment_status = 'paid'), 0) AS received,
+       COALESCE(SUM(amt) FILTER (WHERE payment_status = 'pending'), 0) AS pending
+     FROM split
      GROUP BY 1
      ORDER BY received DESC, billed DESC`,
     [from_date, to_date]
@@ -395,12 +413,18 @@ const getTyrePurchases = async (from_date, to_date) => {
   const base = `FROM tyre_purchases
     WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2`;
   const q = (sql) => pool.query(sql, [from_date, to_date]).then((r) => r.rows);
+  // Old rows have no pattern snapshot: take model/pattern from tyre_stock via tyre_id.
+  const full = `SELECT p.brand, p.size, p.quantity, p.unit_cost,
+              COALESCE(NULLIF(p.name, ''), s.model) AS model,
+              COALESCE(NULLIF(p.pattern, ''), s.pattern) AS pattern
+       FROM tyre_purchases p LEFT JOIN tyre_stock s ON s.id = p.tyre_id
+       WHERE DATE(p.created_at AT TIME ZONE 'Asia/Kolkata') BETWEEN $1 AND $2`;
   const [totals, rows] = await Promise.all([
     q(`SELECT COALESCE(SUM(quantity), 0)::int AS tyres,
               COALESCE(SUM(quantity * unit_cost), 0) AS cost ${base}`),
-    q(`SELECT brand, size, SUM(quantity)::int AS tyres,
-              COALESCE(SUM(quantity * unit_cost), 0) AS cost ${base}
-       GROUP BY brand, size ORDER BY tyres DESC, brand, size`),
+    q(`SELECT brand, model, pattern, size, SUM(quantity)::int AS tyres,
+              COALESCE(SUM(quantity * unit_cost), 0) AS cost FROM (${full}) f
+       GROUP BY brand, model, pattern, size ORDER BY tyres DESC, brand, model, pattern, size`),
   ]);
   return { total_tyres: totals[0].tyres, total_cost: totals[0].cost, rows };
 };
